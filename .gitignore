@@ -1,0 +1,15 @@
+# Datenbank (enthält sensible Überwachungsdaten)
+ai_monitor.db
+ai_monitor.db-shm
+ai_monitor.db-wal
+
+# Screenshots
+screenshots/
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Temp
+*.tmp
