@@ -1,5 +1,4 @@
 psutil>=5.9.0
-pystray>=0.19.5
 Pillow>=10.0.0
 
 # Nur zum Bauen der EXE-Dateien noetig (build.ps1), nicht zur Laufzeit:

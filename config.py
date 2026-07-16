@@ -60,11 +60,29 @@ AI_DOMAINS = [
     "bolt.new",
     "lovable.dev",
     "replit.com",
-    "github.com/features/copilot",
     "copilot.github.com",
     "aider.chat",
     "continue.dev",
     "windsurf.com",
+    # GitHub Copilot - actual API endpoints (NOT github.com/... paths, those
+    # never appear in a connection hostname and never matched anything)
+    "copilot-proxy.githubusercontent.com",
+    "copilot-telemetry.githubusercontent.com",
+    "githubcopilot.com",
+    "individual.githubcopilot.com",
+    "business.githubcopilot.com",
+    "enterprise.githubcopilot.com",
+    # JetBrains AI Assistant (Grazie platform)
+    "grazie.ai",
+    "jetbrains.ai",
+    # Amazon Q Developer / CodeWhisperer
+    "codewhisperer",
+    "amazon-q",
+    # Sourcegraph Cody
+    "sourcegraph.com",
+    "cody-gateway.sourcegraph.com",
+    # Supermaven
+    "supermaven.com",
     # Image AI
     "midjourney.com",
     "stability.ai",
@@ -87,6 +105,7 @@ AI_PROCESSES = [
     "perplexity",       # Perplexity Desktop
     "cursor",           # Cursor AI IDE
     "windsurf",         # Windsurf AI IDE
+    "supermaven",       # Supermaven autocomplete
     # Local LLM Runtimes
     "ollama",
     "ollama_llama_server",
