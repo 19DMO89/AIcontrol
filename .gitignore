@@ -2,6 +2,7 @@
 ai_monitor.db
 ai_monitor.db-shm
 ai_monitor.db-wal
+data/
 
 # Screenshots
 screenshots/
@@ -13,3 +14,8 @@ __pycache__/
 
 # Temp
 *.tmp
+
+# PyInstaller Build-Ausgabe (siehe build.ps1)
+build/
+dist/
+*.spec

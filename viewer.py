@@ -74,7 +74,10 @@ class LoginWindow:
         self.root.title("AI-Monitor · Anmeldung")
         self.root.configure(bg=BG0)
         self.root.resizable(False, False)
-        center_window(self.root, 420, 340)
+        # First-run setup adds a "Passwort bestätigen" field, which needs
+        # extra height so the "Anmelden" button stays visible/clickable.
+        height = 460 if not db.has_credentials() else 340
+        center_window(self.root, 420, height)
         self._build()
 
     def _build(self):
@@ -534,7 +537,48 @@ class ViewerWindow:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _attach_console():
+    """AIMonitorDashboard.exe is built as a windowed (no-console) app for the
+    normal double-click use case. --set-credentials is a CLI action though,
+    so borrow the caller's console (e.g. the installer's PowerShell window)
+    to print/prompt on, falling back to a fresh console window if none."""
+    import ctypes
+    ATTACH_PARENT_PROCESS = 0xFFFFFFFF
+    kernel32 = ctypes.windll.kernel32
+    if not kernel32.AttachConsole(ATTACH_PARENT_PROCESS):
+        kernel32.AllocConsole()
+    sys.stdout = open("CONOUT$", "w")
+    sys.stderr = open("CONOUT$", "w")
+    sys.stdin = open("CONIN$", "r")
+
+
+def _set_credentials_cli():
+    """Seed the admin login during installation, so the dashboard never has
+    an unclaimed first-run state that whoever opens it first could grab."""
+    import getpass
+    _attach_console()
+    username = sys.argv[2] if len(sys.argv) > 2 else input("Benutzername: ").strip()
+    if len(username) < 2:
+        print("Fehler: Benutzername zu kurz (min. 2 Zeichen).", file=sys.stderr)
+        sys.exit(1)
+    password = getpass.getpass("Passwort: ")
+    password2 = getpass.getpass("Passwort bestätigen: ")
+    if len(password) < 6:
+        print("Fehler: Passwort zu kurz (min. 6 Zeichen).", file=sys.stderr)
+        sys.exit(1)
+    if password != password2:
+        print("Fehler: Passwörter stimmen nicht überein.", file=sys.stderr)
+        sys.exit(1)
+    db.init_db()
+    db.set_credentials(username, password)
+    print(f"[OK] Zugangsdaten für '{username}' gesetzt.")
+    sys.exit(0)
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--set-credentials":
+        _set_credentials_cli()
+
     db.init_db()
 
     root = tk.Tk()

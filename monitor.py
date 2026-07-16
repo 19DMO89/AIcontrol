@@ -39,7 +39,7 @@ def take_screenshot() -> str | None:
     try:
         from PIL import ImageGrab
         d = Path(config.SCREENSHOT_DIR)
-        d.mkdir(exist_ok=True)
+        d.mkdir(parents=True, exist_ok=True)
         fname = d / f"shot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
         # all_screens=True captures all connected monitors as one combined image
         ImageGrab.grab(all_screens=True).save(str(fname))
@@ -406,10 +406,14 @@ def monitor_dns_cache():
         try:
             result = subprocess.run(
                 ["ipconfig", "/displaydns"],
-                capture_output=True, text=True, timeout=10,
+                capture_output=True, timeout=10,
                 creationflags=0x08000000  # CREATE_NO_WINDOW
             )
-            output = result.stdout.lower()
+            # ipconfig writes to the console using the OEM codepage (e.g. cp850 on
+            # German Windows), not the ANSI codepage — decoding with text=True
+            # (which uses locale.getpreferredencoding()/cp1252) crashes on bytes
+            # outside that codepage. Decode leniently instead.
+            output = result.stdout.decode("cp850", errors="replace").lower()
 
             for domain in config.AI_DOMAINS:
                 dl = domain.lower()
@@ -460,9 +464,103 @@ def _find_proc_for_domain(domain: str) -> str:
     return "unbekannt"
 
 
+# ── Flutter / unknown-exe window monitor ──────────────────────────────────────
+# Self-built apps (e.g. compiled with Flutter) often ship under a generic
+# executable name that never appears in AI_PROCESSES, so name-based process
+# matching misses them. Flutter's Win32 window class is fixed, so we instead
+# scan top-level window titles for AI-related keywords regardless of exe name.
+
+FLUTTER_WINDOW_CLASS = "FLUTTER_RUNNER_WIN32_WINDOW"
+
+_seen_flutter_hwnds: set[int] = set()
+_flutter_lock = threading.Lock()
+
+
+def _enum_top_level_windows() -> list[int]:
+    user32 = ctypes.windll.user32
+    hwnds: list[int] = []
+
+    @ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    def _callback(hwnd, _lparam):
+        if user32.IsWindowVisible(hwnd):
+            hwnds.append(hwnd)
+        return True
+
+    user32.EnumWindows(_callback, 0)
+    return hwnds
+
+
+def _get_window_class(hwnd) -> str:
+    buf = ctypes.create_unicode_buffer(256)
+    ctypes.windll.user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
+
+def _get_window_title(hwnd) -> str:
+    length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+    if length == 0:
+        return ""
+    buf = ctypes.create_unicode_buffer(length + 1)
+    ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+    return buf.value
+
+
+def monitor_flutter_windows():
+    log("Flutter-Fenster-Monitor gestartet")
+    while True:
+        try:
+            for hwnd in _enum_top_level_windows():
+                with _flutter_lock:
+                    if hwnd in _seen_flutter_hwnds:
+                        continue
+                try:
+                    if _get_window_class(hwnd) != FLUTTER_WINDOW_CLASS:
+                        continue
+
+                    title = _get_window_title(hwnd)
+                    title_l = title.lower()
+                    matched = next(
+                        (kw for kw in config.AI_WINDOW_KEYWORDS if kw in title_l), None
+                    )
+                    if not matched:
+                        continue
+
+                    with _flutter_lock:
+                        _seen_flutter_hwnds.add(hwnd)
+
+                    pid = ctypes.wintypes.DWORD()
+                    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    exe = "unbekannt"
+                    try:
+                        exe = psutil.Process(pid.value).exe()
+                    except Exception:
+                        pass
+
+                    key = f"flutter_{pid.value}_{title_l[:40]}"
+                    if db.event_key_exists(key):
+                        continue
+
+                    shot = take_screenshot()
+                    db.log_event(
+                        event_type="process",
+                        severity="critical",
+                        title=f"KI-Programm erkannt (eigenständige App): {title}",
+                        details=f"Fenstertitel: {title}\nPfad: {exe}\nPID: {pid.value}\nErkannt via Fenstertitel (Regel: {matched})",
+                        screenshot_path=shot,
+                        event_key=key,
+                    )
+                    log(f"[FENSTER] KI-App erkannt: {title} (PID {pid.value})")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        time.sleep(config.PROCESS_CHECK_INTERVAL)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-def main():
+def main(stop_event: threading.Event | None = None):
+    """Run all monitor threads until interrupted (CLI) or stop_event is set (service)."""
     db.init_db()
     session_id = db.start_session()
     log(f"AI-Monitor gestartet (Session {session_id})")
@@ -472,6 +570,7 @@ def main():
         threading.Thread(target=monitor_network,   daemon=True, name="net"),
         threading.Thread(target=monitor_dns_cache, daemon=True, name="dns"),
         threading.Thread(target=monitor_processes, daemon=True, name="proc"),
+        threading.Thread(target=monitor_flutter_windows, daemon=True, name="flutter"),
         threading.Thread(target=monitor_browser,   daemon=True, name="browser"),
         threading.Thread(target=monitor_clipboard, daemon=True, name="clip"),
     ]
@@ -479,11 +578,12 @@ def main():
         t.start()
 
     try:
-        while True:
-            time.sleep(5)
+        while not (stop_event is not None and stop_event.is_set()):
+            time.sleep(1)
     except KeyboardInterrupt:
-        log("Monitor gestoppt.")
+        pass
     finally:
+        log("Monitor gestoppt.")
         db.end_session(session_id)
 
 

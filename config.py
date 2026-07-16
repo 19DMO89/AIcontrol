@@ -1,3 +1,18 @@
+import os
+import sys
+from pathlib import Path
+
+# Resolve the data directory (DB + screenshots) to a fixed, installation-wide
+# location rather than "next to the running exe" — the service EXE and the
+# dashboard EXE live in different install subfolders, so anchoring to their
+# own directory would make them read/write two different databases. Never
+# use the process' current working directory either, since a Windows Service
+# or a desktop-shortcut launch won't have the project folder as CWD.
+if getattr(sys, "frozen", False):
+    _DATA_DIR = Path(os.environ.get("PROGRAMDATA", r"C:\ProgramData")) / "AIMonitor" / "data"
+else:
+    _DATA_DIR = Path(__file__).resolve().parent / "data"
+
 # AI domains to monitor - extend as needed
 AI_DOMAINS = [
     # Major AI Chatbots
@@ -92,6 +107,14 @@ AI_PROCESSES = [
     "pinokio",
 ]
 
+# Keywords checked against window titles to catch self-built AI apps (e.g.
+# compiled with Flutter/Electron) whose executable name isn't in AI_PROCESSES.
+AI_WINDOW_KEYWORDS = [
+    "chatgpt", "gpt", "claude", "gemini", "copilot", "perplexity",
+    "openai", "anthropic", "ki-assistent", "ki assistent", "ai assistant",
+    "ai chat", "ki chat", "chatbot", "llm",
+]
+
 # Clipboard patterns that suggest AI-generated text (German + English)
 AI_CLIPBOARD_PATTERNS = [
     "as an ai", "as an ai language model", "i'm an ai",
@@ -117,7 +140,7 @@ CLIPBOARD_CHECK_INTERVAL = 4     # seconds
 SCREENSHOT_ON_DETECTION = True
 
 # Database file (shared between monitor and viewer)
-DB_PATH = "ai_monitor.db"
+DB_PATH = str(_DATA_DIR / "ai_monitor.db")
 
 # Screenshot directory
-SCREENSHOT_DIR = "screenshots"
+SCREENSHOT_DIR = str(_DATA_DIR / "screenshots")
