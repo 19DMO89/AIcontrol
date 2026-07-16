@@ -31,21 +31,20 @@ def log(msg):
         pass
 
 
-# ── Screenshot helper ─────────────────────────────────────────────────────────
+# ── Event logging with screenshot request ─────────────────────────────────────
+# The service runs as LocalSystem in Session 0, which has no desktop and so
+# cannot grab a screenshot itself - Windows session isolation blocks this
+# outright (verified: PIL.ImageGrab raises "OSError: screen grab failed"
+# there, every time, regardless of code). Log the event immediately, then
+# leave a screenshot request for session_agent.py - a separate process that
+# runs in the competitor's own logon session, where screen capture actually
+# works - to fulfill asynchronously.
 
-def take_screenshot() -> str | None:
-    if not config.SCREENSHOT_ON_DETECTION:
-        return None
-    try:
-        from PIL import ImageGrab
-        d = Path(config.SCREENSHOT_DIR)
-        d.mkdir(parents=True, exist_ok=True)
-        fname = d / f"shot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        # all_screens=True captures all connected monitors as one combined image
-        ImageGrab.grab(all_screens=True).save(str(fname))
-        return str(fname)
-    except Exception:
-        return None
+def log_event(event_type, severity, title, details=None, event_key=None):
+    event_id = db.log_event(event_type, severity, title, details=details, event_key=event_key)
+    if event_id and config.SCREENSHOT_ON_DETECTION:
+        db.request_screenshot(event_id)
+    return event_id
 
 
 # ── DNS resolver with cache ───────────────────────────────────────────────────
@@ -105,13 +104,11 @@ def _check_single_connection(conn_info):
         except Exception:
             pass
 
-        shot = take_screenshot()
-        db.log_event(
+        log_event(
             event_type="network",
             severity="critical",
             title=f"KI-Verbindung: {matched}",
             details=f"Prozess: {proc_name}  |  IP: {ip}  |  Host: {hostname}  |  Port: {port}",
-            screenshot_path=shot,
             event_key=f"net_{ip}_{port}",
         )
         log(f"[NETZWERK] KI-Verbindung erkannt → {hostname} ({matched}) via {proc_name}")
@@ -198,13 +195,11 @@ def monitor_processes():
                             if db.event_key_exists(app_key):
                                 break
 
-                            shot = take_screenshot()
-                            db.log_event(
+                            log_event(
                                 event_type="process",
                                 severity="critical",
                                 title=f"KI-Programm erkannt: {label}",
                                 details=f"Pfad: {proc.info['exe'] or 'unbekannt'}\nPID: {pid}",
-                                screenshot_path=shot,
                                 event_key=app_key,
                             )
                             log(f"[PROZESS] KI-App erkannt: {label} (PID {pid})")
@@ -285,13 +280,11 @@ def _check_browser_rows(rows, browser: str, time_converter=None):
                 if db.event_key_exists(key):
                     break
 
-                shot = take_screenshot()
-                db.log_event(
+                log_event(
                     event_type="browser",
                     severity="critical",
                     title=f"KI-Webseite geöffnet ({browser}): {domain}",
                     details=f"URL: {url[:300]}\nTitel: {title}",
-                    screenshot_path=shot,
                     event_key=key,
                 )
                 log(f"[BROWSER] KI-URL erkannt ({browser}): {url[:80]}")
@@ -316,43 +309,79 @@ def _chromium_profile_histories(user_data_dir: Path) -> list[Path]:
     return paths
 
 
+def _real_user_appdata_dirs() -> list[tuple[Path, Path]]:
+    """The service runs as LocalSystem, whose own LOCALAPPDATA/APPDATA point
+    at C:\\Windows\\System32\\config\\systemprofile - an empty profile that
+    was never used to browse anything. The actual competitor's browser data
+    lives under their own C:\\Users\\<name>\\AppData, which LocalSystem can
+    still read (it isn't restricted the way a *different* standard user
+    would be) - it just has to be found by walking C:\\Users directly instead
+    of trusting environment variables, which only ever reflect the calling
+    process' own account."""
+    # Path("C:") / "Users" silently produces the drive-relative path "C:Users"
+    # (resolves against the CWD on C:), not the absolute "C:\Users" - pathlib
+    # only treats "C:\\" (with the separator) as the drive root.
+    system_drive = os.environ.get("SystemDrive", "C:")
+    users_root = Path(system_drive + "\\") / "Users"
+    skip = {"public", "default", "default user", "all users"}
+    dirs = []
+    if not users_root.exists():
+        return dirs
+    for entry in users_root.iterdir():
+        if not entry.is_dir() or entry.name.lower() in skip:
+            continue
+        local_appdata = entry / "AppData" / "Local"
+        appdata = entry / "AppData" / "Roaming"
+        if local_appdata.exists() or appdata.exists():
+            dirs.append((local_appdata, appdata))
+    return dirs
+
+
 def monitor_browser():
     log("Browser-Monitor gestartet")
-    local  = Path(os.environ.get("LOCALAPPDATA", ""))
-    appdata = Path(os.environ.get("APPDATA", ""))
-
-    chromium_roots = {
-        "Chrome": local / "Google" / "Chrome" / "User Data",
-        "Edge":   local / "Microsoft" / "Edge" / "User Data",
-        "Brave":  local / "BraveSoftware" / "Brave-Browser" / "User Data",
-    }
-    opera_history = appdata / "Opera Software" / "Opera Stable" / "History"
 
     while True:
         since = time.time() - config.BROWSER_CHECK_INTERVAL * 3
 
-        for name, root in chromium_roots.items():
-            for hist_path in _chromium_profile_histories(root):
-                rows = _read_chromium_history(hist_path, name, since)
-                _check_browser_rows(rows, name)
+        for local, appdata in _real_user_appdata_dirs():
+            chromium_roots = {
+                "Chrome": local / "Google" / "Chrome" / "User Data",
+                "Edge":   local / "Microsoft" / "Edge" / "User Data",
+                "Brave":  local / "BraveSoftware" / "Brave-Browser" / "User Data",
+            }
+            for name, root in chromium_roots.items():
+                for hist_path in _chromium_profile_histories(root):
+                    rows = _read_chromium_history(hist_path, name, since)
+                    _check_browser_rows(rows, name)
 
-        if opera_history.exists():
-            rows = _read_chromium_history(opera_history, "Opera", since)
-            _check_browser_rows(rows, "Opera")
+            opera_history = appdata / "Opera Software" / "Opera Stable" / "History"
+            if opera_history.exists():
+                rows = _read_chromium_history(opera_history, "Opera", since)
+                _check_browser_rows(rows, "Opera")
 
-        # Firefox
-        ff_profiles = appdata / "Mozilla" / "Firefox" / "Profiles"
-        if ff_profiles.exists():
-            for profile in ff_profiles.iterdir():
-                places = profile / "places.sqlite"
-                if places.exists():
-                    rows = _read_firefox_history(places, since)
-                    _check_browser_rows(rows, "Firefox")
+            ff_profiles = appdata / "Mozilla" / "Firefox" / "Profiles"
+            if ff_profiles.exists():
+                for profile in ff_profiles.iterdir():
+                    places = profile / "places.sqlite"
+                    if places.exists():
+                        rows = _read_firefox_history(places, since)
+                        _check_browser_rows(rows, "Firefox")
 
         time.sleep(config.BROWSER_CHECK_INTERVAL)
 
 
 # ── Clipboard monitor ─────────────────────────────────────────────────────────
+# KNOWN LIMITATION: running as the real LocalSystem service, this executes in
+# Session 0, which has no desktop/window station at all - Windows' clipboard
+# is a per-desktop resource, so OpenClipboard() here can never see what the
+# competitor (in their own interactive session) actually copies. It fails
+# quietly (caught below, returns "") rather than erroring, so nothing breaks,
+# but this monitor is effectively inert whenever running as the installed
+# service. Same constraint applies to monitor_flutter_windows() below -
+# EnumWindows() from Session 0 cannot enumerate another session's windows.
+# A real fix needs a small companion process running IN the competitor's own
+# logon session (e.g. a scheduled task triggered "at log on") that reports
+# findings back to this service - out of scope for the current pass.
 
 _last_clipboard = ""
 _clipboard_lock = threading.Lock()
@@ -454,13 +483,11 @@ def monitor_dns_cache():
 
                 # Try to find which process owns connections to this domain
                 proc_name = _find_proc_for_domain(domain)
-                shot = take_screenshot()
-                db.log_event(
+                log_event(
                     event_type="network",
                     severity="critical",
                     title=f"KI-Dienst im DNS-Cache: {domain}",
                     details=f"Domain im Windows DNS-Cache gefunden — Verbindung wurde hergestellt.\nProzess: {proc_name}",
-                    screenshot_path=shot,
                     event_key=key,
                 )
                 log(f"[DNS] KI-Domain erkannt: {domain} (Prozess: {proc_name})")
@@ -563,13 +590,11 @@ def monitor_flutter_windows():
                     if db.event_key_exists(key):
                         continue
 
-                    shot = take_screenshot()
-                    db.log_event(
+                    log_event(
                         event_type="process",
                         severity="critical",
                         title=f"KI-Programm erkannt (eigenständige App): {title}",
                         details=f"Fenstertitel: {title}\nPfad: {exe}\nPID: {pid.value}\nErkannt via Fenstertitel (Regel: {matched})",
-                        screenshot_path=shot,
                         event_key=key,
                     )
                     log(f"[FENSTER] KI-App erkannt: {title} (PID {pid.value})")

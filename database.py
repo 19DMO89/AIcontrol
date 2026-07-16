@@ -45,16 +45,25 @@ def init_db():
                 hostname   TEXT,
                 os_user    TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS screenshot_requests (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id     INTEGER NOT NULL,
+                requested_at TEXT NOT NULL,
+                fulfilled    INTEGER DEFAULT 0
+            );
         """)
 
 
 def log_event(event_type, severity, title, details=None,
               screenshot_path=None, event_key=None):
-    """Insert an event; silently ignore duplicate event_keys."""
+    """Insert an event; silently ignore duplicate event_keys.
+    Returns the new event's id, or None if it was a duplicate (or on error) -
+    callers use this to know whether to request a screenshot for it."""
     ts = datetime.now().isoformat(sep=' ', timespec='seconds')
     try:
         with _connect() as conn:
-            conn.execute(
+            cur = conn.execute(
                 """INSERT OR IGNORE INTO events
                    (timestamp, event_type, severity, title, details,
                     screenshot_path, event_key)
@@ -62,8 +71,9 @@ def log_event(event_type, severity, title, details=None,
                 (ts, event_type, severity, title, details,
                  screenshot_path, event_key)
             )
+            return cur.lastrowid if cur.rowcount else None
     except Exception:
-        pass
+        return None
 
 
 def event_key_exists(event_key):
@@ -115,6 +125,36 @@ def acknowledge_all():
 def delete_event(event_id):
     with _connect() as conn:
         conn.execute("DELETE FROM events WHERE id=?", (event_id,))
+
+
+# ── Screenshot requests ──────────────────────────────────────────────────────
+# The monitor service runs as LocalSystem in Session 0, which has no desktop
+# and so cannot grab a screenshot itself (Windows session isolation). It
+# leaves a request here instead; session_agent.py, running in the actual
+# competitor's own logon session, polls for these and fulfills them.
+
+def request_screenshot(event_id):
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO screenshot_requests (event_id, requested_at) VALUES (?,?)",
+            (event_id, datetime.now().isoformat(sep=' ', timespec='seconds'))
+        )
+
+
+def get_pending_screenshot_requests(limit=20):
+    with _connect() as conn:
+        return conn.execute(
+            """SELECT id, event_id, requested_at FROM screenshot_requests
+               WHERE fulfilled=0 ORDER BY id LIMIT ?""",
+            (limit,)
+        ).fetchall()
+
+
+def fulfill_screenshot_request(request_id, event_id, screenshot_path):
+    with _connect() as conn:
+        conn.execute("UPDATE screenshot_requests SET fulfilled=1 WHERE id=?", (request_id,))
+        if screenshot_path:
+            conn.execute("UPDATE events SET screenshot_path=? WHERE id=?", (screenshot_path, event_id))
 
 
 # ── Credentials ─────────────────────────────────────────────────────────────

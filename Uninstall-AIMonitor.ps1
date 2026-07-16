@@ -62,6 +62,16 @@ if ($svc) {
     Write-Host "Dienst 'AIMonitor' ist nicht installiert."
 }
 
+# ── Sitzungs-Agent (Screenshots) stoppen und Aufgabe entfernen ──────────────
+$agentTask = "AIMonitorSessionAgent"
+$existingTask = Get-ScheduledTask -TaskName $agentTask -ErrorAction SilentlyContinue
+if ($existingTask) {
+    Write-Host "==> Entferne Sitzungs-Agent-Aufgabe ..." -ForegroundColor Cyan
+    Get-Process -Name AISessionAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+    Unregister-ScheduledTask -TaskName $agentTask -Confirm:$false -ErrorAction SilentlyContinue
+    Write-Host "[OK] Sitzungs-Agent entfernt."
+}
+
 # ── Desktop-Verknuepfung entfernen ───────────────────────────────────────────
 $desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
 $lnk = Join-Path $desktop "AI-Monitor Dashboard.lnk"
@@ -71,12 +81,14 @@ if (Test-Path $lnk) {
 }
 
 # ── Legacy-Autostart-Eintrag (alte .bat-Versionen) entfernen ────────────────
-reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMonitor" /f 2>$null | Out-Null
+# try/catch statt Stream-Umleitung, siehe Install-AIMonitor.ps1 fuer den Grund.
+try { reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMonitor" /f *>$null } catch {}
 
 # ── Programmdateien / Daten entfernen ────────────────────────────────────────
 if (Test-Path $installRoot) {
-    # Eigene NTFS-Sperren zuruecksetzen, damit das Loeschen nicht daran scheitert.
-    icacls $installRoot /reset /T /C 2>$null | Out-Null
+    # Eigene NTFS-Sperren zuruecksetzen, damit das Loeschen nicht daran
+    # scheitert. try/catch statt Stream-Umleitung, siehe Install-AIMonitor.ps1.
+    try { icacls $installRoot /reset /T /C *>$null } catch {}
 
     if ($KeepData) {
         Write-Host "==> Entferne Programmdateien (Daten bleiben erhalten unter $dataDir) ..." -ForegroundColor Cyan
