@@ -124,6 +124,19 @@ icacls $installRoot /grant:r "${SID_SYSTEM}:(OI)(CI)F" "${SID_ADMINS}:(OI)(CI)F"
 icacls $binDir       /grant:r "${SID_USERS}:(OI)(CI)RX"                         | Out-Null
 icacls $dataDir      /grant:r "${SID_USERS}:(OI)(CI)M"                          | Out-Null
 
+# Screenshots duerfen von Standardbenutzern angelegt (der Sitzungs-Agent laeuft
+# ja mit ihren eigenen Rechten - anders geht ein Screenshot des eigenen
+# Desktops technisch nicht), aber nicht geloescht werden koennen. DE (Delete)
+# und DC (Delete Child) werden hier gezielt verweigert - eine explizite Deny-
+# ACE gewinnt in NTFS immer gegen die geerbte Allow-ACE von oben (Modify
+# schliesst Loeschen normalerweise mit ein). Bewusst nur auf diesem
+# Unterordner, nicht auf $dataDir insgesamt - dort braucht SQLite im WAL-Modus
+# Loeschrechte fuer seine eigenen Begleitdateien (siehe Kommentar oben).
+$screenshotsDir = Join-Path $dataDir "screenshots"
+New-Item -ItemType Directory -Force -Path $screenshotsDir | Out-Null
+icacls $screenshotsDir /grant:r "${SID_USERS}:(OI)(CI)M"       | Out-Null
+icacls $screenshotsDir /deny    "${SID_USERS}:(OI)(CI)(DE,DC)" | Out-Null
+
 # ── Windows-Dienst registrieren ──────────────────────────────────────────────
 # Ueber die eingebaute pywin32-"install"-Befehlszeile registrieren statt mit
 # einem manuell zusammengesetzten sc.exe-Aufruf - pywin32 kennt die fuer seinen
