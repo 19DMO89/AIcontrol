@@ -298,24 +298,47 @@ def _check_browser_rows(rows, browser: str, time_converter=None):
                 break
 
 
+def _chromium_profile_histories(user_data_dir: Path) -> list[Path]:
+    """Chromium browsers store each profile ("Default", "Profile 1", "Profile
+    2", ...) in its own subfolder under User Data, each with its own History
+    file. Only scanning "Default" misses everything if the browser's active
+    profile is anything else - a very plausible setup on a competition PC."""
+    if not user_data_dir.exists():
+        return []
+    paths = []
+    for entry in user_data_dir.iterdir():
+        if not entry.is_dir():
+            continue
+        if entry.name == "Default" or entry.name.startswith("Profile "):
+            hist = entry / "History"
+            if hist.exists():
+                paths.append(hist)
+    return paths
+
+
 def monitor_browser():
     log("Browser-Monitor gestartet")
     local  = Path(os.environ.get("LOCALAPPDATA", ""))
     appdata = Path(os.environ.get("APPDATA", ""))
 
-    browsers = {
-        "Chrome": local / "Google" / "Chrome" / "User Data" / "Default" / "History",
-        "Edge":   local / "Microsoft" / "Edge" / "User Data" / "Default" / "History",
-        "Brave":  local / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "History",
-        "Opera":  appdata / "Opera Software" / "Opera Stable" / "History",
+    chromium_roots = {
+        "Chrome": local / "Google" / "Chrome" / "User Data",
+        "Edge":   local / "Microsoft" / "Edge" / "User Data",
+        "Brave":  local / "BraveSoftware" / "Brave-Browser" / "User Data",
     }
+    opera_history = appdata / "Opera Software" / "Opera Stable" / "History"
 
     while True:
         since = time.time() - config.BROWSER_CHECK_INTERVAL * 3
-        for name, path in browsers.items():
-            if path.exists():
-                rows = _read_chromium_history(path, name, since)
+
+        for name, root in chromium_roots.items():
+            for hist_path in _chromium_profile_histories(root):
+                rows = _read_chromium_history(hist_path, name, since)
                 _check_browser_rows(rows, name)
+
+        if opera_history.exists():
+            rows = _read_chromium_history(opera_history, "Opera", since)
+            _check_browser_rows(rows, "Opera")
 
         # Firefox
         ff_profiles = appdata / "Mozilla" / "Firefox" / "Profiles"
