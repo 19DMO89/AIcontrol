@@ -144,9 +144,20 @@ icacls $screenshotsDir /deny    "${SID_USERS}:(OI)(CI)(DE,DC)" | Out-Null
 # der Service-Klasse) und war zuverlaessiger als der handgebaute Weg, der zu
 # einem 60s-Timeout beim Start fuehrte (Event 7009).
 Write-Host "==> Registriere Dienst 'AIMonitor' ..." -ForegroundColor Cyan
-$out = & $svcExe --startup auto install 2>&1
-if ($LASTEXITCODE -ne 0) {
-    throw "Dienst-Installation fehlgeschlagen (Exit-Code $LASTEXITCODE): $out"
+# Retry, weil ein Echtzeit-Virenschutz die frisch nach ProgramData kopierte
+# AIMonitorService.exe hier gerade erst scannt - ein unmittelbar folgender
+# Ausfuehrungsversuch schlaegt dabei sporadisch mit Access Denied (Exit-Code
+# 5) fehl, obwohl an der Datei/den Rechten nichts falsch ist. Nach ein paar
+# Sekunden ist der Scan durch und derselbe Aufruf klappt anstandslos.
+$maxAttempts = 5
+for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+    $out = & $svcExe --startup auto install 2>&1
+    if ($LASTEXITCODE -eq 0) { break }
+    if ($attempt -eq $maxAttempts) {
+        throw "Dienst-Installation fehlgeschlagen (Exit-Code $LASTEXITCODE): $out"
+    }
+    Write-Host "    ... Versuch $attempt fehlgeschlagen (Exit-Code $LASTEXITCODE), erneuter Versuch in 3s ..." -ForegroundColor DarkYellow
+    Start-Sleep -Seconds 3
 }
 
 # Automatischer Neustart bei Absturz/Beendigung (z.B. per Taskmanager) -

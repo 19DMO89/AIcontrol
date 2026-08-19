@@ -86,8 +86,17 @@ try { reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMoni
 
 # ── Programmdateien / Daten entfernen ────────────────────────────────────────
 if (Test-Path $installRoot) {
-    # Eigene NTFS-Sperren zuruecksetzen, damit das Loeschen nicht daran
-    # scheitert. try/catch statt Stream-Umleitung, siehe Install-AIMonitor.ps1.
+    # Datenbank/Screenshots gehoeren dem LocalSystem-Konto (vom Dienst
+    # angelegt) - ein Administrator hat dafuer zwar per Vererbung Vollzugriff,
+    # aber icacls /reset scheitert darauf trotzdem mit Zugriff verweigert,
+    # solange der Besitz nicht erst auf die Administratoren-Gruppe uebergeht.
+    # /A statt /D+Benutzername, damit das unabhaengig von der Sprache der
+    # Windows-Installation funktioniert (kein interaktives J/Y-Prompt).
+    try { takeown /F $installRoot /R /A *>$null } catch {}
+    # Setzt u.a. die explizite Deny-Regel auf dem Screenshots-Ordner zurueck
+    # (siehe Install-AIMonitor.ps1) - die greift sonst auch bei einem
+    # Administrator-Konto, das ueblicherweise ebenfalls Mitglied der
+    # Standardbenutzer-Gruppe ist, und wuerde das Loeschen unten verhindern.
     try { icacls $installRoot /reset /T /C *>$null } catch {}
 
     if ($KeepData) {
