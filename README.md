@@ -19,21 +19,34 @@ weder zu stoppen noch zu entfernen (eingebautes Windows-SCM-Verhalten).
 | `AISessionAgent.exe` | Läuft in der Nutzersitzung, macht bei Treffern Screenshots (ein Dienst in Session 0 hat keinen Zugriff auf den Desktop) |
 | `AIMonitorDashboard.exe` | Passwortgeschütztes Anzeige-Tool für die protokollierten Ereignisse und Screenshots |
 
-## Voraussetzungen zum Bauen
+## Installation (für die meisten: nur das hier lesen)
 
-- Windows
-- Python 3.10+
-- Abhängigkeiten installieren:
+Unter [Releases](https://github.com/19DMO89/AIcontrol/releases/latest)
+liegt eine fertig gebaute **`AIMonitor-Setup.exe`** zum Download — kein
+Python, kein Bauen nötig. Auf dem Zielrechner (z. B. dem Wettbewerbs-PC):
 
-  ```powershell
-  python -m pip install -r requirements.txt
-  ```
+1. `AIMonitor-Setup.exe` herunterladen und doppelklicken.
+2. UAC-Abfrage bestätigen (die Datei fordert die Rechte automatisch an).
+3. Am Ende: Dashboard-Benutzername/-Passwort vergeben, wenn danach gefragt
+   wird (min. 6 Zeichen) — **sofort erledigen**, bevor der PC an
+   Teilnehmer übergeben wird.
 
-Es gibt keine fertigen EXE-Dateien im Repo oder als Release-Anhang — `dist\`
-wird bewusst nicht mit eingecheckt (siehe `.gitignore`) und muss lokal
-gebaut werden.
+Das war's — Dienst, Session-Agent und Desktop-Icon sind eingerichtet.
 
-## Installation
+Programmdateien liegen danach unter `%ProgramData%\AIMonitor\bin` (nur
+lesbar/ausführbar für Standardbenutzer), Datenbank und Screenshots unter
+`%ProgramData%\AIMonitor\data`.
+
+## Bauen & Paketieren (nur für Entwickler)
+
+Nötig, wenn du `config.py` (Erkennungsliste) oder den restlichen Code
+änderst und daraus eine neue `AIMonitor-Setup.exe` erzeugen willst.
+
+Voraussetzungen: Windows, Python 3.10+, Abhängigkeiten installiert:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 1. **Bauen** (erstellt `dist\AIMonitorService`, `dist\AIMonitorDashboard.exe`,
    `dist\AISessionAgent.exe` per PyInstaller):
@@ -42,28 +55,38 @@ gebaut werden.
    powershell -ExecutionPolicy Bypass -File build.ps1
    ```
 
-2. **Installieren** (registriert den Windows-Dienst, legt ein Dashboard-Icon
-   auf dem Desktop aller Benutzer an, richtet den Session-Agent-Autostart
-   ein). Fordert automatisch Administratorrechte per UAC an:
+2. **Paketieren** (packt `dist\` + `Install-AIMonitor.ps1` in eine einzige
+   `AIMonitor-Setup.exe`, siehe oben):
 
    ```powershell
-   powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
+   powershell -ExecutionPolicy Bypass -File package.ps1
    ```
 
-   Alternativ per Doppelklick auf `AI-Monitor installieren.bat`.
+   Braucht nur `csc.exe` (Teil jeder .NET-Framework-Installation, kein
+   Zusatzwerkzeug). `AIMonitor-Setup.exe` liegt danach im Projektordner und
+   kann auf beliebig viele Zielrechner kopiert werden.
 
-   > **Häufigster Fehler:** `dist\ nicht gefunden oder unvollstaendig.`
-   > Das bedeutet, Schritt 1 (`build.ps1`) wurde noch nicht oder nicht
-   > vollständig ausgeführt.
+### Manuell installieren (ohne AIMonitor-Setup.exe)
 
-3. **Dashboard-Passwort vergeben**: Beim ersten Start von
-   `AIMonitorDashboard.exe` nach der Installation wird nach einem
-   Benutzernamen und einem Passwort (min. 6 Zeichen) gefragt — dieses
-   schützt den Zugriff auf die protokollierten Ereignisse und Screenshots.
+Alternativ direkt aus dem gebauten `dist\` heraus installieren, z. B. zum
+Testen auf dem Entwickler-Rechner selbst:
 
-Programmdateien liegen danach unter `%ProgramData%\AIMonitor\bin` (nur
-lesbar/ausführbar für Standardbenutzer), Datenbank und Screenshots unter
-`%ProgramData%\AIMonitor\data`.
+```powershell
+powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
+```
+
+Alternativ per Doppelklick auf `AI-Monitor installieren.bat`. Fordert
+automatisch Administratorrechte per UAC an.
+
+> **Häufigster Fehler:** `dist\ nicht gefunden oder unvollstaendig.`
+> Das bedeutet, Schritt 1 (`build.ps1`) wurde noch nicht oder nicht
+> vollständig ausgeführt.
+
+Fertige `AIMonitor-Setup.exe` als neues Release veröffentlichen:
+
+```powershell
+gh release create vX.Y.Z AIMonitor-Setup.exe --title "vX.Y.Z" --notes "..."
+```
 
 ## Deinstallation
 
