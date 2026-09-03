@@ -24,7 +24,7 @@ Alle nennenswerten Änderungen an AI-Monitor. Neueste Version zuerst.
 - **Wiederholte Nutzung wird protokolliert.** Bisher wurde jede App/
   Domain/URL genau einmal auf Lebenszeit erfasst — häufige Nutzung
   derselben laufenden Sitzung war unsichtbar. Jetzt: ein Eintrag pro
-  Zeitfenster (`REDETECT_AFTER`, Standard 10 Min), danach wieder ein
+  Zeitfenster (`REDETECT_AFTER`, Standard 5 Min), danach wieder ein
   neuer. Browser-Treffer werden nach dem tatsächlichen Besuchszeitpunkt
   eingeordnet.
 

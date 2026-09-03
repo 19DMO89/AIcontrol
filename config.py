@@ -161,7 +161,7 @@ AI_CLIPBOARD_PATTERNS = [
 # auch mehrfache Nutzung derselben laufenden Sitzung sichtbar (mit zeitlicher
 # Luecke dazwischen). Kleiner = jede Nutzung einzeln (laengere Liste),
 # groesser = weniger Wiederholungs-Eintraege.
-REDETECT_AFTER = 600            # seconds (10 Minuten)
+REDETECT_AFTER = 300            # seconds (5 Minuten)
 
 # Monitoring intervals
 NETWORK_CHECK_INTERVAL = 8       # seconds

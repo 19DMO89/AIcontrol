@@ -155,4 +155,4 @@ echter Label-Grenze erkannt (`x.ai` passt auf `api.x.ai`, nicht auf
 Zeitfenster protokolliert und danach im nächsten Fenster wieder — so wird
 auch mehrfache Nutzung sichtbar, statt zu einem einzigen Lifetime-Eintrag
 zu verschmelzen. Fensterlänge: `REDETECT_AFTER` in `config.py`
-(Standard 10 Minuten).
+(Standard 5 Minuten).
