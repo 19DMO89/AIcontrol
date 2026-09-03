@@ -75,8 +75,10 @@ class LoginWindow:
         self.root.configure(bg=BG0)
         self.root.resizable(False, False)
         # First-run setup adds a "Passwort bestätigen" field, which needs
-        # extra height so the "Anmelden" button stays visible/clickable.
-        height = 460 if not db.has_credentials() else 340
+        # extra height. The status line below the button also needs room, or
+        # error messages ("Falscher Benutzername …") land off-screen on this
+        # fixed-size, non-resizable window and look like no feedback at all.
+        height = 500 if not db.has_credentials() else 380
         center_window(self.root, 420, height)
         self._build()
 
@@ -132,13 +134,16 @@ class LoginWindow:
                         bg=ACC, fg="white", font=FONT_B, relief="flat",
                         bd=0, padx=10, pady=8, cursor="hand2",
                         activebackground="#c73652", activeforeground="white")
-        btn.grid(row=7, column=0, padx=20, pady=16, sticky="ew")
+        btn.grid(row=7, column=0, padx=20, pady=(16, 4), sticky="ew")
+
+        # Status line lives inside the card (fixed row) so error messages are
+        # always visible and the layout doesn't jump when one appears.
+        self.status_var = tk.StringVar()
+        tk.Label(card, textvariable=self.status_var, font=FONT,
+                 bg=BG1, fg=CRIT, wraplength=320, justify="center").grid(
+                     row=8, column=0, padx=20, pady=(0, 12), sticky="ew")
 
         card.columnconfigure(0, weight=1)
-
-        self.status_var = tk.StringVar()
-        tk.Label(self.root, textvariable=self.status_var, font=FONT,
-                 bg=BG0, fg=CRIT).pack()
 
         pw_e.focus_set()
         self.first_run = first_run
@@ -578,6 +583,12 @@ def _set_credentials_cli():
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--set-credentials":
         _set_credentials_cli()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--has-credentials":
+        # Silent probe for the installer: exit 0 if an admin login is already
+        # configured, 1 if not. Lets a re-install skip the password prompt.
+        db.init_db()
+        sys.exit(0 if db.has_credentials() else 1)
 
     db.init_db()
 

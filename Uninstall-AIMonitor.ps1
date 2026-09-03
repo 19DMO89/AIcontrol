@@ -1,8 +1,9 @@
 <#
     AI-Monitor - Deinstallation
     ===========================
-    Stoppt und entfernt den Windows-Dienst, die Programmdateien und die
-    Desktop-Verknuepfung. Erfordert Administratorrechte (bewusst so, damit
+    Stoppt und entfernt den Windows-Dienst, die Programmdateien, den
+    "Apps & Features"-Eintrag und den Desktop-Ordner. Erfordert
+    Administratorrechte (bewusst so, damit
     Teilnehmer die Ueberwachung nicht selbst entfernen koennen).
 
     Ausfuehren:  powershell -ExecutionPolicy Bypass -File Uninstall-AIMonitor.ps1
@@ -15,6 +16,23 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$installRoot = "$env:ProgramData\AIMonitor"
+
+# Aus dem Installationsverzeichnis heraus gestartet (so ruft "Apps & Features"
+# den Deinstaller auf)? Dann zuerst in den Temp-Ordner kopieren und von dort
+# neu starten - sonst wuerde sich das Skript beim Loeschen von $installRoot
+# selbst unter den Fuessen wegziehen. Die Kopie holt sich anschliessend ueber
+# den Block unten selbst per UAC die noetigen Administratorrechte.
+if ($PSCommandPath -and ($PSCommandPath -like "$installRoot\*")) {
+    $tempCopy = Join-Path $env:TEMP ("Uninstall-AIMonitor_{0}.ps1" -f ([guid]::NewGuid().ToString('N')))
+    Copy-Item -LiteralPath $PSCommandPath -Destination $tempCopy -Force
+    $relArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$tempCopy`"")
+    if ($KeepData) { $relArgs += "-KeepData" }
+    if ($Force)    { $relArgs += "-Force" }
+    Start-Process powershell -ArgumentList $relArgs
+    exit
+}
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
@@ -36,7 +54,6 @@ if (-not $isAdmin) {
 
 try {
 
-$installRoot = "$env:ProgramData\AIMonitor"
 $binDir      = Join-Path $installRoot "bin"
 $dataDir     = Join-Path $installRoot "data"
 
@@ -72,17 +89,27 @@ if ($existingTask) {
     Write-Host "[OK] Sitzungs-Agent entfernt."
 }
 
-# ── Desktop-Verknuepfung entfernen ───────────────────────────────────────────
+# ── Desktop-Ordner / -Verknuepfung entfernen ─────────────────────────────────
 $desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
-$lnk = Join-Path $desktop "AI-Monitor Dashboard.lnk"
-if (Test-Path $lnk) {
-    Remove-Item $lnk -Force
-    Write-Host "[OK] Desktop-Verknuepfung entfernt."
+$deskFolder = Join-Path $desktop "AI-Monitor"
+if (Test-Path $deskFolder) {
+    Remove-Item $deskFolder -Recurse -Force
+    Write-Host "[OK] Desktop-Ordner entfernt."
 }
+# Lose Verknuepfung aus aelteren Versionen (vor dem Desktop-Ordner)
+$legacyLnk = Join-Path $desktop "AI-Monitor Dashboard.lnk"
+if (Test-Path $legacyLnk) { Remove-Item $legacyLnk -Force }
 
 # ── Legacy-Autostart-Eintrag (alte .bat-Versionen) entfernen ────────────────
 # try/catch statt Stream-Umleitung, siehe Install-AIMonitor.ps1 fuer den Grund.
 try { reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMonitor" /f *>$null } catch {}
+
+# ── "Apps & Features"-Eintrag entfernen ─────────────────────────────────────
+$arpKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMonitor"
+if (Test-Path $arpKey) {
+    Remove-Item $arpKey -Recurse -Force
+    Write-Host "[OK] Eintrag aus 'Apps & Features' entfernt."
+}
 
 # ── Programmdateien / Daten entfernen ────────────────────────────────────────
 if (Test-Path $installRoot) {

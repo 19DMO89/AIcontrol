@@ -31,7 +31,9 @@ Python, kein Bauen nötig. Auf dem Zielrechner (z. B. dem Wettbewerbs-PC):
    wird (min. 6 Zeichen) — **sofort erledigen**, bevor der PC an
    Teilnehmer übergeben wird.
 
-Das war's — Dienst, Session-Agent und Desktop-Icon sind eingerichtet.
+Das war's — Dienst und Session-Agent laufen, auf dem Desktop liegt der
+Ordner **`AI-Monitor`** mit der Dashboard- und einer Deinstallations-
+Verknüpfung.
 
 Programmdateien liegen danach unter `%ProgramData%\AIMonitor\bin` (nur
 lesbar/ausführbar für Standardbenutzer), Datenbank und Screenshots unter
@@ -55,8 +57,9 @@ python -m pip install -r requirements.txt
    powershell -ExecutionPolicy Bypass -File build.ps1
    ```
 
-2. **Paketieren** (packt `dist\` + `Install-AIMonitor.ps1` in eine einzige
-   `AIMonitor-Setup.exe`, siehe oben):
+2. **Paketieren** (packt `dist\` + `Install-AIMonitor.ps1` +
+   `Uninstall-AIMonitor.ps1` in eine einzige `AIMonitor-Setup.exe`, siehe
+   oben):
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File package.ps1
@@ -90,6 +93,18 @@ gh release create vX.Y.Z AIMonitor-Setup.exe --title "vX.Y.Z" --notes "..."
 
 ## Deinstallation
 
+Die Installation legt einen Eintrag **„AI-Monitor"** unter Windows-
+Einstellungen → *Apps* (bzw. *Systemsteuerung → Programme und Features*) an.
+Von dort „Deinstallieren" wählen — die UAC-Abfrage bestätigen, fertig.
+
+Alternativ direkt das mitinstallierte Skript ausführen:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "%ProgramData%\AIMonitor\bin\Uninstall-AIMonitor.ps1"
+```
+
+bzw. im Entwickler-Ordner:
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File Uninstall-AIMonitor.ps1
 ```
@@ -101,7 +116,8 @@ nicht selbst entfernen können). Optionen:
   behalten statt zu löschen
 - `-Force` — ohne Rückfrage deinstallieren
 
-Alternativ per Doppelklick auf `AI-Monitor deinstallieren.bat`.
+Alternativ per Doppelklick auf `AI-Monitor deinstallieren.bat` (liegt nach
+der Installation auch unter `%ProgramData%\AIMonitor\bin`).
 
 ## Fehlersuche
 
@@ -116,6 +132,10 @@ powershell -ExecutionPolicy Bypass -File Diagnose-AIMonitor.ps1
 
 Ergebnis landet in `diagnose_output.log`. Alternativ per Doppelklick auf
 `AI-Monitor Diagnose.bat`.
+
+## Änderungsverlauf
+
+Siehe [CHANGELOG.md](CHANGELOG.md).
 
 ## Was wird erkannt?
 

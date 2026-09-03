@@ -6,8 +6,10 @@
     Zielrechner nur noch ein Doppelklick noetig ist - kein Python, kein
     manueller Build-Schritt.
 
-    Funktionsweise: dist\ + Install-AIMonitor.ps1 werden in bundle.zip
-    gepackt und als eingebettete Ressource in einen winzigen C#-Stub
+    Funktionsweise: dist\ + Install-AIMonitor.ps1 + Uninstall-AIMonitor.ps1
+    werden in bundle.zip gepackt (der Installer kopiert den Deinstaller mit
+    auf den Zielrechner und traegt ihn in "Apps & Features" ein) und als
+    eingebettete Ressource in einen winzigen C#-Stub
     kompiliert (per csc.exe, Teil jeder .NET-Framework-Installation - kein
     Zusatzwerkzeug noetig). Die fertige EXE traegt ein "requireAdministrator"-
     Manifest, fragt beim Doppelklick also selbst per UAC nach Adminrechten,
@@ -47,6 +49,11 @@ $bundleContentDir = Join-Path $stagingDir "bundle_content"
 New-Item -ItemType Directory -Force -Path $bundleContentDir | Out-Null
 Copy-Item $distDir (Join-Path $bundleContentDir "dist") -Recurse -Force
 Copy-Item (Join-Path $root "Install-AIMonitor.ps1") $bundleContentDir -Force
+# Der Installer kopiert diese beiden mit nach %ProgramData%\AIMonitor\bin und
+# registriert sie als "Apps & Features"-Deinstaller - ohne sie im Bundle
+# bliebe auf dem Zielrechner kein Weg zum Deinstallieren.
+Copy-Item (Join-Path $root "Uninstall-AIMonitor.ps1") $bundleContentDir -Force
+Copy-Item (Join-Path $root "AI-Monitor deinstallieren.bat") $bundleContentDir -Force
 $zipPath = Join-Path $stagingDir "bundle.zip"
 Compress-Archive -Path (Join-Path $bundleContentDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 

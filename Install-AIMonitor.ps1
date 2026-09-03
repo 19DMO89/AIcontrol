@@ -4,7 +4,8 @@
     Installiert den AI-Monitor als Windows-Dienst (startet automatisch mit
     Windows, unabhaengig vom angemeldeten Benutzer), registriert den
     Sitzungs-Agenten (fuer Screenshots) als Anmelde-Aufgabe und legt ein
-    Dashboard-Icon auf dem Desktop aller Benutzer an.
+    Desktop-Ordner "AI-Monitor" (Dashboard- + Deinstallations-Verknuepfung)
+    fuer alle Benutzer an.
 
     Manipulationsschutz:
       - Der Dienst laeuft unter dem LocalSystem-Konto. Windows selbst
@@ -62,6 +63,11 @@ $svcExe      = Join-Path $svcDir "AIMonitorService.exe"
 $dashExe     = Join-Path $binDir "AIMonitorDashboard.exe"
 $agentExe    = Join-Path $binDir "AISessionAgent.exe"
 $agentTask   = "AIMonitorSessionAgent"
+$uninstSrc   = Join-Path $root "Uninstall-AIMonitor.ps1"
+$uninstBatSrc = Join-Path $root "AI-Monitor deinstallieren.bat"
+$uninstDst   = Join-Path $binDir "Uninstall-AIMonitor.ps1"
+$version     = "1.4.0"
+$arpKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMonitor"
 
 if (-not (Test-Path $svcSrc) -or -not (Test-Path $dashSrc) -or -not (Test-Path $agentSrc)) {
     Write-Error "dist\ nicht gefunden oder unvollstaendig. Bitte zuerst build.ps1 ausfuehren."
@@ -87,6 +93,10 @@ if ($existingTask) {
     Get-Process -Name AISessionAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $agentTask -Confirm:$false -ErrorAction SilentlyContinue
 }
+
+# Ein noch offenes Dashboard haelt AIMonitorDashboard.exe gesperrt - dann
+# wuerde das Ueberschreiben beim Upgrade fehlschlagen. Vorher beenden.
+Get-Process -Name AIMonitorDashboard -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 # ── Verzeichnisse anlegen und Dateien kopieren ───────────────────────────────
 New-Item -ItemType Directory -Force -Path $svcDir  | Out-Null
@@ -207,15 +217,67 @@ Register-ScheduledTask -TaskName $agentTask -Action $agentAction -Trigger $agent
 # Anmeldung zu warten.
 Start-ScheduledTask -TaskName $agentTask -ErrorAction SilentlyContinue
 
-# ── Desktop-Verknuepfung fuer alle Benutzer ─────────────────────────────────
-Write-Host "==> Erstelle Desktop-Verknuepfung ..." -ForegroundColor Cyan
-$desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
+# Desktop-Ordner mit Dashboard- und Deinstallations-Verknuepfung wird weiter
+# unten angelegt (nach dem Kopieren des Deinstaller-Skripts).
+
+# ── Deinstaller mitinstallieren und in "Apps & Features" registrieren ────────
+# Die AIMonitor-Setup.exe liefert nur den Installer aus - ohne diesen Schritt
+# bliebe auf dem Zielrechner kein Weg, den AI-Monitor wieder zu entfernen,
+# und in den Windows-Einstellungen (Apps / "Programme und Features") taucht
+# nichts auf. Das Deinstaller-Skript liegt in $binDir und erbt dessen NTFS-
+# Rechte (Standardbenutzer nur Lesen/Ausfuehren), laesst sich also von
+# Teilnehmern nicht manipulieren; das Deinstallieren selbst verlangt ohnehin
+# eine UAC-Bestaetigung (siehe Uninstall-AIMonitor.ps1).
+Write-Host "==> Registriere Deinstaller ..." -ForegroundColor Cyan
+if (Test-Path $uninstSrc) {
+    Copy-Item $uninstSrc $uninstDst -Force
+} else {
+    Write-Warning "Uninstall-AIMonitor.ps1 nicht neben dem Installer gefunden - Deinstaller-Skript fehlt."
+}
+if (Test-Path $uninstBatSrc) {
+    Copy-Item $uninstBatSrc (Join-Path $binDir "AI-Monitor deinstallieren.bat") -Force
+}
+
+$uninstCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstDst`""
+New-Item -Path $arpKey -Force | Out-Null
+Set-ItemProperty -Path $arpKey -Name "DisplayName"          -Value "AI-Monitor"
+Set-ItemProperty -Path $arpKey -Name "DisplayVersion"       -Value $version
+Set-ItemProperty -Path $arpKey -Name "Publisher"            -Value "AI-Monitor"
+Set-ItemProperty -Path $arpKey -Name "InstallLocation"      -Value $installRoot
+Set-ItemProperty -Path $arpKey -Name "DisplayIcon"          -Value $dashExe
+Set-ItemProperty -Path $arpKey -Name "UninstallString"      -Value $uninstCmd
+Set-ItemProperty -Path $arpKey -Name "QuietUninstallString" -Value "$uninstCmd -Force"
+Set-ItemProperty -Path $arpKey -Name "NoModify" -Value 1 -Type DWord
+Set-ItemProperty -Path $arpKey -Name "NoRepair" -Value 1 -Type DWord
+try {
+    $sizeKb = [int]((Get-ChildItem $binDir -Recurse -File -ErrorAction SilentlyContinue |
+                     Measure-Object -Property Length -Sum).Sum / 1024)
+    Set-ItemProperty -Path $arpKey -Name "EstimatedSize" -Value $sizeKb -Type DWord
+} catch {}
+
+# ── Desktop-Ordner "AI-Monitor" fuer alle Benutzer ─────────────────────────
+# Statt einer losen Verknuepfung ein Ordner mit Dashboard- und Deinstall-
+# Verknuepfung darin, damit beides zusammen an einer Stelle liegt.
+Write-Host "==> Erstelle Desktop-Ordner 'AI-Monitor' ..." -ForegroundColor Cyan
+$desktop   = [Environment]::GetFolderPath("CommonDesktopDirectory")
+$deskFolder = Join-Path $desktop "AI-Monitor"
+New-Item -ItemType Directory -Force -Path $deskFolder | Out-Null
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut((Join-Path $desktop "AI-Monitor Dashboard.lnk"))
-$shortcut.TargetPath = $dashExe
-$shortcut.WorkingDirectory = $binDir
-$shortcut.Description = "AI-Monitor Dashboard - Berufsweltmeisterschaften"
-$shortcut.Save()
+
+$scDash = $shell.CreateShortcut((Join-Path $deskFolder "AI-Monitor Dashboard.lnk"))
+$scDash.TargetPath       = $dashExe
+$scDash.WorkingDirectory = $binDir
+$scDash.IconLocation     = "$dashExe,0"
+$scDash.Description       = "AI-Monitor Dashboard - Berufsweltmeisterschaften"
+$scDash.Save()
+
+$scUninst = $shell.CreateShortcut((Join-Path $deskFolder "AI-Monitor deinstallieren.lnk"))
+$scUninst.TargetPath       = "powershell.exe"
+$scUninst.Arguments        = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstDst`""
+$scUninst.WorkingDirectory = $binDir
+$scUninst.IconLocation     = "shell32.dll,31"
+$scUninst.Description       = "AI-Monitor vom Rechner entfernen (fragt nach Administratorrechten)"
+$scUninst.Save()
 
 # ── Alten Autostart-Registry-Eintrag (aus fruehreren .bat-Versionen) entfernen
 # Erwartet meist ein "Wert nicht gefunden" (der Eintrag existiert nur bei
@@ -232,15 +294,28 @@ Write-Host "============================================================"
 Write-Host ""
 
 # ── Admin-Zugangsdaten festlegen, falls noch keine existieren ───────────────
-Write-Host "Jetzt Benutzername/Passwort fuer das Dashboard festlegen:" -ForegroundColor Yellow
-Write-Host "(WICHTIG: unbedingt jetzt erledigen, bevor der PC an Teilnehmer" -ForegroundColor Yellow
-Write-Host " uebergeben wird - sonst kann das der/die Erste tun, der/die" -ForegroundColor Yellow
-Write-Host " das Dashboard-Icon oeffnet.)" -ForegroundColor Yellow
-Write-Host ""
-& $dashExe --set-credentials
+# Bei einem Upgrade sind die Zugangsdaten bereits in der Datenbank - dann
+# nicht erneut danach fragen (sonst muesste bei jeder Neuinstallation ein
+# neues Passwort vergeben werden).
+# Start-Process -Wait, weil das Dashboard eine GUI-Anwendung ist - ein
+# blankes "& $dashExe" wuerde nicht zuverlaessig warten bzw. keinen
+# Exit-Code liefern. Der --has-credentials-Pfad oeffnet kein Fenster.
+$credProbe = Start-Process -FilePath $dashExe -ArgumentList "--has-credentials" `
+    -Wait -PassThru -WindowStyle Hidden
+if ($credProbe.ExitCode -eq 0) {
+    Write-Host "Vorhandene Dashboard-Zugangsdaten bleiben unveraendert." -ForegroundColor Green
+} else {
+    Write-Host "Jetzt Benutzername/Passwort fuer das Dashboard festlegen:" -ForegroundColor Yellow
+    Write-Host "(WICHTIG: unbedingt jetzt erledigen, bevor der PC an Teilnehmer" -ForegroundColor Yellow
+    Write-Host " uebergeben wird - sonst kann das der/die Erste tun, der/die" -ForegroundColor Yellow
+    Write-Host " das Dashboard-Icon oeffnet.)" -ForegroundColor Yellow
+    Write-Host ""
+    & $dashExe --set-credentials
+}
 
 Write-Host ""
-Write-Host "Fertig. Dashboard-Icon liegt auf dem Desktop aller Benutzer."
+Write-Host "Fertig. Auf dem Desktop liegt der Ordner 'AI-Monitor' mit"
+Write-Host "Dashboard- und Deinstallations-Verknuepfung."
 Write-Host ""
 Read-Host "Fenster mit Enter schliessen"
 
