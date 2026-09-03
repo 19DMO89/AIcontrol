@@ -47,6 +47,75 @@ def log_event(event_type, severity, title, details=None, event_key=None):
     return event_id
 
 
+# ── Re-detection windows ──────────────────────────────────────────────────────
+# Every event_key is suffixed with a time bucket so the same app/domain/URL is
+# logged once per REDETECT_AFTER window and then again in the next window -
+# repeated use (even of one long-running session, after a gap) stays visible
+# instead of collapsing into a single lifetime entry.
+
+_REDETECT = max(60, int(getattr(config, "REDETECT_AFTER", 600)))
+
+_logged_keys: set[str] = set()
+_logged_lock = threading.Lock()
+
+
+def _bucket(ts: float | None = None) -> int:
+    return int((time.time() if ts is None else ts) // _REDETECT)
+
+
+def _bkey(base: str, ts: float | None = None) -> str:
+    return f"{base}#{_bucket(ts)}"
+
+
+def _already_logged(key: str) -> bool:
+    """In-memory fast path, then the DB (which is the source of truth and
+    survives a service restart within the same window)."""
+    with _logged_lock:
+        if key in _logged_keys:
+            return True
+    if db.event_key_exists(key):
+        with _logged_lock:
+            _logged_keys.add(key)
+        return True
+    return False
+
+
+def _mark_logged(key: str):
+    with _logged_lock:
+        _logged_keys.add(key)
+
+
+def _domain_matches(haystack: str, domain: str) -> bool:
+    """True if `domain` occurs in `haystack` (a hostname, URL or the DNS-cache
+    dump) on a real label boundary - so "x.ai" matches "api.x.ai" but not
+    "climax.airlines.com". A path-qualified entry ("bing.com/copilot") is a
+    plain substring test."""
+    haystack = haystack.lower()
+    domain = domain.lower()
+    if "/" in domain:
+        return domain in haystack
+    before_ok = ("", ".", "/", "@", ":", " ", "\t", "\n", "\r", "=", '"', "'", "(")
+    after_ok  = ("", "/", ":", "?", "#", " ", "\t", "\n", "\r", ",", '"', "'", ")")
+    i = 0
+    while True:
+        i = haystack.find(domain, i)
+        if i == -1:
+            return False
+        before = haystack[i - 1] if i > 0 else ""
+        j = i + len(domain)
+        after = haystack[j] if j < len(haystack) else ""
+        if before in before_ok and after in after_ok:
+            return True
+        i = j
+
+
+def match_ai_domain(hostname: str) -> str | None:
+    for domain in config.AI_DOMAINS:
+        if _domain_matches(hostname, domain):
+            return domain
+    return None
+
+
 # ── DNS resolver with cache ───────────────────────────────────────────────────
 
 _dns_cache: dict[str, str] = {}
@@ -66,35 +135,20 @@ def resolve_ip(ip: str) -> str:
     return hostname
 
 
-def match_ai_domain(hostname: str) -> str | None:
-    hl = hostname.lower()
-    for domain in config.AI_DOMAINS:
-        dl = domain.lower()
-        if dl in hl or hl.endswith("." + dl) or hl == dl:
-            return domain
-    return None
-
-
 # ── Network monitor ───────────────────────────────────────────────────────────
-
-_seen_connections: set[tuple] = set()
-_seen_lock = threading.Lock()
-
 
 def _check_single_connection(conn_info):
     try:
         ip   = conn_info.raddr.ip
         port = conn_info.raddr.port
-        key  = (ip, port)
-
-        with _seen_lock:
-            if key in _seen_connections:
-                return
-            _seen_connections.add(key)
 
         hostname = resolve_ip(ip)
         matched  = match_ai_domain(hostname)
         if not matched:
+            return
+
+        key = _bkey(f"net_{matched}")
+        if _already_logged(key):
             return
 
         proc_name = "?"
@@ -104,14 +158,16 @@ def _check_single_connection(conn_info):
         except Exception:
             pass
 
-        log_event(
+        eid = log_event(
             event_type="network",
             severity="critical",
             title=f"KI-Verbindung: {matched}",
             details=f"Prozess: {proc_name}  |  IP: {ip}  |  Host: {hostname}  |  Port: {port}",
-            event_key=f"net_{ip}_{port}",
+            event_key=key,
         )
-        log(f"[NETZWERK] KI-Verbindung erkannt → {hostname} ({matched}) via {proc_name}")
+        if eid:
+            _mark_logged(key)
+            log(f"[NETZWERK] KI-Verbindung erkannt → {hostname} ({matched}) via {proc_name}")
     except Exception:
         pass
 
@@ -135,8 +191,29 @@ def monitor_network():
 
 # ── Process monitor ───────────────────────────────────────────────────────────
 
-_seen_pids: set[int] = set()
-_pid_lock  = threading.Lock()
+def _proc_stems(name: str, exe: str) -> set[str]:
+    """The identifiers an AI_PROCESSES entry is allowed to match against:
+    the process name and the exe file name, each with and without extension.
+    Deliberately NOT the full path - a substring test against the path flags
+    every process of a user whose folder name happens to contain a rule
+    (e.g. C:\\Users\\Jan)."""
+    stems: set[str] = set()
+    for raw in (name, Path(exe).name if exe else ""):
+        raw = raw.lower().strip()
+        if not raw:
+            continue
+        stems.add(raw)
+        if raw.endswith(".exe"):
+            stems.add(raw[:-4])
+    return stems
+
+
+def _match_ai_process(name: str, exe: str) -> str | None:
+    stems = _proc_stems(name, exe)
+    for ai_proc in config.AI_PROCESSES:
+        if ai_proc.lower() in stems:
+            return ai_proc
+    return None
 
 
 def _classify_process(name: str, exe: str, matched_rule: str) -> tuple[str, str]:
@@ -174,36 +251,29 @@ def monitor_processes():
         try:
             for proc in psutil.process_iter(["pid", "name", "exe"]):
                 try:
-                    name = (proc.info["name"] or "").lower()
-                    exe  = (proc.info["exe"]  or "").lower()
+                    name = (proc.info["name"] or "")
+                    exe  = (proc.info["exe"]  or "")
                     pid  = proc.info["pid"]
 
-                    with _pid_lock:
-                        if pid in _seen_pids:
-                            continue
+                    ai_proc = _match_ai_process(name, exe)
+                    if not ai_proc:
+                        continue
 
-                    for ai_proc in config.AI_PROCESSES:
-                        if ai_proc.lower() in name or ai_proc.lower() in exe:
-                            with _pid_lock:
-                                if pid in _seen_pids:
-                                    break
-                                _seen_pids.add(pid)
+                    label, app_base = _classify_process(name.lower(), exe.lower(), ai_proc)
+                    key = _bkey(app_base)
+                    if _already_logged(key):
+                        continue
 
-                            # Build descriptive label and unique key based on exe path
-                            label, app_key = _classify_process(proc.info["name"], exe, ai_proc)
-
-                            if db.event_key_exists(app_key):
-                                break
-
-                            log_event(
-                                event_type="process",
-                                severity="critical",
-                                title=f"KI-Programm erkannt: {label}",
-                                details=f"Pfad: {proc.info['exe'] or 'unbekannt'}\nPID: {pid}",
-                                event_key=app_key,
-                            )
-                            log(f"[PROZESS] KI-App erkannt: {label} (PID {pid})")
-                            break
+                    eid = log_event(
+                        event_type="process",
+                        severity="critical",
+                        title=f"KI-Programm erkannt: {label}",
+                        details=f"Pfad: {exe or 'unbekannt'}\nPID: {pid}",
+                        event_key=key,
+                    )
+                    if eid:
+                        _mark_logged(key)
+                        log(f"[PROZESS] KI-App erkannt: {label} (PID {pid})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
         except Exception:
@@ -229,7 +299,8 @@ def _read_chromium_history(db_path: Path, browser: str, since_unix: float):
             (cutoff,)
         ).fetchall()
         conn.close()
-        return rows
+        # normalize the visit time to unix seconds, like the Firefox reader
+        return [(url, title, _chrome_time_to_unix(ts)) for url, title, ts in rows if ts]
     except Exception:
         return []
     finally:
@@ -261,34 +332,33 @@ def _read_firefox_history(db_path: Path, since_unix: float):
             pass
 
 
-# Track already-logged browser URLs
-_seen_browser_keys: set[str] = set()
-_browser_lock = threading.Lock()
-
-
-def _check_browser_rows(rows, browser: str, time_converter=None):
+def _check_browser_rows(rows, browser: str):
+    import hashlib
     for row in rows:
         url   = row[0] or ""
         title = row[1] or ""
+        visit = row[2] if len(row) > 2 and row[2] else None
         for domain in config.AI_DOMAINS:
-            if domain.lower() in url.lower():
-                key = f"browser_{url}"
-                with _browser_lock:
-                    if key in _seen_browser_keys:
-                        break
-                    _seen_browser_keys.add(key)
-                if db.event_key_exists(key):
-                    break
-
-                log_event(
-                    event_type="browser",
-                    severity="critical",
-                    title=f"KI-Webseite geöffnet ({browser}): {domain}",
-                    details=f"URL: {url[:300]}\nTitel: {title}",
-                    event_key=key,
-                )
-                log(f"[BROWSER] KI-URL erkannt ({browser}): {url[:80]}")
+            if not _domain_matches(url, domain):
+                continue
+            # Bucket by the actual visit time, not wall-clock, so each visit
+            # episode is its own event even when the service saw it late.
+            url_hash = hashlib.md5(url.encode("utf-8", "replace")).hexdigest()[:12]
+            key = _bkey(f"browser_{domain}_{url_hash}", visit)
+            if _already_logged(key):
                 break
+
+            eid = log_event(
+                event_type="browser",
+                severity="critical",
+                title=f"KI-Webseite geöffnet ({browser}): {domain}",
+                details=f"URL: {url[:300]}\nTitel: {title}",
+                event_key=key,
+            )
+            if eid:
+                _mark_logged(key)
+                log(f"[BROWSER] KI-URL erkannt ({browser}): {url[:80]}")
+            break
 
 
 def _chromium_profile_histories(user_data_dir: Path) -> list[Path]:
@@ -426,17 +496,21 @@ def monitor_clipboard():
                         break
 
                 if matched_pattern:
-                    key = f"clip_{hash(text[:200])}"
-                    if not db.event_key_exists(key):
+                    import hashlib
+                    text_hash = hashlib.md5(text[:200].encode("utf-8", "replace")).hexdigest()[:12]
+                    key = _bkey(f"clip_{text_hash}")
+                    if not _already_logged(key):
                         excerpt = text[:400].replace("\n", " ")
-                        db.log_event(
+                        eid = db.log_event(
                             event_type="clipboard",
                             severity="warning",
                             title="KI-typischer Text in Zwischenablage",
                             details=f'Muster: "{matched_pattern}"\n\nAuszug: {excerpt}…',
                             event_key=key,
                         )
-                        log(f"[CLIPBOARD] Verdächtiger Text erkannt (Muster: {matched_pattern})")
+                        if eid:
+                            _mark_logged(key)
+                            log(f"[CLIPBOARD] Verdächtiger Text erkannt (Muster: {matched_pattern})")
         except Exception:
             pass
         time.sleep(config.CLIPBOARD_CHECK_INTERVAL)
@@ -446,10 +520,6 @@ def monitor_clipboard():
 # Reads the Windows DNS resolver cache via ipconfig /displaydns.
 # This catches desktop apps (Claude, ChatGPT, …) that connect through CDN IPs
 # which don't reverse-resolve to their real hostname.
-
-_seen_dns_domains: set[str] = set()
-_dns_mon_lock = threading.Lock()
-
 
 def monitor_dns_cache():
     log("DNS-Cache-Monitor gestartet")
@@ -468,29 +538,25 @@ def monitor_dns_cache():
             output = result.stdout.decode("cp850", errors="replace").lower()
 
             for domain in config.AI_DOMAINS:
-                dl = domain.lower()
-                if dl not in output:
+                if not _domain_matches(output, domain):
                     continue
 
-                with _dns_mon_lock:
-                    if dl in _seen_dns_domains:
-                        continue
-                    _seen_dns_domains.add(dl)
-
-                key = f"dns_{dl}"
-                if db.event_key_exists(key):
+                key = _bkey(f"dns_{domain.lower()}")
+                if _already_logged(key):
                     continue
 
                 # Try to find which process owns connections to this domain
                 proc_name = _find_proc_for_domain(domain)
-                log_event(
+                eid = log_event(
                     event_type="network",
                     severity="critical",
                     title=f"KI-Dienst im DNS-Cache: {domain}",
                     details=f"Domain im Windows DNS-Cache gefunden — Verbindung wurde hergestellt.\nProzess: {proc_name}",
                     event_key=key,
                 )
-                log(f"[DNS] KI-Domain erkannt: {domain} (Prozess: {proc_name})")
+                if eid:
+                    _mark_logged(key)
+                    log(f"[DNS] KI-Domain erkannt: {domain} (Prozess: {proc_name})")
         except Exception:
             pass
         time.sleep(15)
@@ -521,9 +587,6 @@ def _find_proc_for_domain(domain: str) -> str:
 # scan top-level window titles for AI-related keywords regardless of exe name.
 
 FLUTTER_WINDOW_CLASS = "FLUTTER_RUNNER_WIN32_WINDOW"
-
-_seen_flutter_hwnds: set[int] = set()
-_flutter_lock = threading.Lock()
 
 
 def _enum_top_level_windows() -> list[int]:
@@ -560,9 +623,6 @@ def monitor_flutter_windows():
     while True:
         try:
             for hwnd in _enum_top_level_windows():
-                with _flutter_lock:
-                    if hwnd in _seen_flutter_hwnds:
-                        continue
                 try:
                     if _get_window_class(hwnd) != FLUTTER_WINDOW_CLASS:
                         continue
@@ -575,9 +635,6 @@ def monitor_flutter_windows():
                     if not matched:
                         continue
 
-                    with _flutter_lock:
-                        _seen_flutter_hwnds.add(hwnd)
-
                     pid = ctypes.wintypes.DWORD()
                     ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                     exe = "unbekannt"
@@ -586,18 +643,20 @@ def monitor_flutter_windows():
                     except Exception:
                         pass
 
-                    key = f"flutter_{pid.value}_{title_l[:40]}"
-                    if db.event_key_exists(key):
+                    key = _bkey(f"flutter_{title_l[:40]}")
+                    if _already_logged(key):
                         continue
 
-                    log_event(
+                    eid = log_event(
                         event_type="process",
                         severity="critical",
                         title=f"KI-Programm erkannt (eigenständige App): {title}",
                         details=f"Fenstertitel: {title}\nPfad: {exe}\nPID: {pid.value}\nErkannt via Fenstertitel (Regel: {matched})",
                         event_key=key,
                     )
-                    log(f"[FENSTER] KI-App erkannt: {title} (PID {pid.value})")
+                    if eid:
+                        _mark_logged(key)
+                        log(f"[FENSTER] KI-App erkannt: {title} (PID {pid.value})")
                 except Exception:
                     pass
         except Exception:

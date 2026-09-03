@@ -24,9 +24,12 @@ AI_DOMAINS = [
     "gemini.google.com",
     "bard.google.com",
     "aistudio.google.com",
-    # Microsoft AI
+    # Microsoft Copilot - NICHT das nackte "bing.com": Windows 11, Edge, die
+    # Widgets und die Windows-Suche kontaktieren bing.com permanent, voellig
+    # ohne KI-Nutzung (war die Ursache fuer "Chrome/Bing als KI erkannt").
     "copilot.microsoft.com",
-    "bing.com",
+    "bing.com/chat",
+    "bing.com/copilot",
     # AI Search
     "perplexity.ai",
     "you.com",
@@ -96,7 +99,10 @@ AI_DOMAINS = [
     "n8n.io",
 ]
 
-# Local AI process names (executables)
+# Local AI process names. Diese werden gegen den *exakten* Prozess-/Datei-
+# namen geprueft (ohne .exe), NICHT als Teilstring gegen den ganzen Pfad -
+# sonst wuerde z.B. "jan" jeden Prozess des Windows-Benutzers "Jan" als
+# KI-Programm melden (Pfad C:\Users\Jan\...).
 AI_PROCESSES = [
     # AI Desktop Apps
     "claude",           # Claude Desktop App (Anthropic)
@@ -148,6 +154,14 @@ AI_CLIPBOARD_PATTERNS = [
     "gerne helfe ich",
     "## ", "### ",  # Markdown headers (common in AI output)
 ]
+
+# Nach welcher Zeit dieselbe App / Domain / URL als *neue* Nutzung gilt und
+# erneut protokolliert wird. Innerhalb dieses Fensters zaehlt wiederholte
+# Aktivitaet als ein Ereignis; danach entsteht ein neuer Eintrag - so wird
+# auch mehrfache Nutzung derselben laufenden Sitzung sichtbar (mit zeitlicher
+# Luecke dazwischen). Kleiner = jede Nutzung einzeln (laengere Liste),
+# groesser = weniger Wiederholungs-Eintraege.
+REDETECT_AFTER = 600            # seconds (10 Minuten)
 
 # Monitoring intervals
 NETWORK_CHECK_INTERVAL = 8       # seconds

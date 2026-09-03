@@ -145,3 +145,14 @@ werden (z. B. `AI_DOMAINS`, `AI_PROCESSES`, `AI_WINDOW_KEYWORDS`,
 `AI_CLIPBOARD_PATTERNS`). Nach einer Änderung muss neu gebaut und neu
 installiert werden (Schritte 1 und 2 oben), da der Python-Quellcode
 vollständig in die EXE-Dateien kompiliert wird.
+
+`AI_PROCESSES`-Einträge werden gegen den *exakten* Prozess-/Dateinamen
+geprüft (nicht als Teilstring gegen den ganzen Pfad); Domains werden auf
+echter Label-Grenze erkannt (`x.ai` passt auf `api.x.ai`, nicht auf
+`climax.airlines.com`).
+
+**Wiederholte Nutzung:** Dieselbe App/Domain/URL wird einmal pro
+Zeitfenster protokolliert und danach im nächsten Fenster wieder — so wird
+auch mehrfache Nutzung sichtbar, statt zu einem einzigen Lifetime-Eintrag
+zu verschmelzen. Fensterlänge: `REDETECT_AFTER` in `config.py`
+(Standard 10 Minuten).

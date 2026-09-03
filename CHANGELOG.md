@@ -2,6 +2,32 @@
 
 Alle nennenswerten Änderungen an AI-Monitor. Neueste Version zuerst.
 
+## v1.5.0 — 2026-09-03
+
+### Behoben
+- **`bing.com` als KI-Treffer.** Das nackte `bing.com` stand in der
+  Erkennungsliste — Windows 11, Edge, Chrome, Widgets und die
+  Windows-Suche kontaktieren es aber permanent ohne jede KI-Nutzung.
+  Führte zu Fehlalarmen „Bing als KI" und „Chrome als KI" (Chrome bei
+  genau dieser bing.com-Verbindung erwischt). Ersetzt durch
+  `copilot.microsoft.com` und die Pfade `bing.com/chat`,
+  `bing.com/copilot`.
+- **Prozess-Erkennung per Teilstring gegen den ganzen Pfad.** Ein
+  Listeneintrag wie `jan` (lokaler LLM-Runner) hätte bei einem
+  Windows-Benutzer namens „Jan" (Pfad `C:\Users\Jan\…`) *jeden* Prozess
+  als KI-Programm gemeldet. Jetzt exakter Abgleich gegen Prozess-/
+  Dateinamen.
+- **Domain-Abgleich auf Label-Grenze.** `x.ai` passt jetzt auf
+  `api.x.ai`, aber nicht mehr auf `climax.airlines.com` o. Ä.
+
+### Geändert
+- **Wiederholte Nutzung wird protokolliert.** Bisher wurde jede App/
+  Domain/URL genau einmal auf Lebenszeit erfasst — häufige Nutzung
+  derselben laufenden Sitzung war unsichtbar. Jetzt: ein Eintrag pro
+  Zeitfenster (`REDETECT_AFTER`, Standard 10 Min), danach wieder ein
+  neuer. Browser-Treffer werden nach dem tatsächlichen Besuchszeitpunkt
+  eingeordnet.
+
 ## v1.4.0 — 2026-09-03
 
 ### Behoben
