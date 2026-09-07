@@ -2,6 +2,23 @@
 
 Alle nennenswerten Änderungen an AI-Monitor. Neueste Version zuerst.
 
+## v2.0.0 — 2026-09-07
+
+### Neu
+- **Versionsanzeige im Dashboard und im Anmeldefenster.** So ist auf einen
+  Blick erkennbar, welche Version auf einem Rechner läuft — hilfreich bei
+  Fehlerberichten und um alte, vor einem Update protokollierte Fehlalarme
+  von aktuellen zu unterscheiden.
+- `AIMonitorDashboard.exe --version` gibt die Version auf der Konsole aus.
+- Versionsnummer hat jetzt eine einzige Quelle (`VERSION` in `config.py`);
+  der Installer übernimmt sie in den „Apps & Features"-Eintrag.
+
+### Hinweis zu Fehlalarmen aus älteren Versionen
+Beim Update auf v1.5.0 wurden bereits protokollierte Fehlalarme (z. B.
+`bing.com`, oder ein Programm mit „Jan" im Pfad) **nicht rückwirkend
+entfernt** — sie stehen weiter in der Datenbank. Neue kommen keine mehr
+dazu; alte Einträge im Dashboard auswählen und löschen.
+
 ## v1.5.0 — 2026-09-03
 
 ### Behoben

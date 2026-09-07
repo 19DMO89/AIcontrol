@@ -35,6 +35,9 @@ Das war's — Dienst und Session-Agent laufen, auf dem Desktop liegt der
 Ordner **`AI-Monitor`** mit der Dashboard- und einer Deinstallations-
 Verknüpfung.
 
+Die installierte Version steht im Dashboard und im Anmeldefenster (oben
+bzw. unter dem Titel) sowie in den Windows-Einstellungen → Apps.
+
 Programmdateien liegen danach unter `%ProgramData%\AIMonitor\bin` (nur
 lesbar/ausführbar für Standardbenutzer), Datenbank und Screenshots unter
 `%ProgramData%\AIMonitor\data`.

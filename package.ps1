@@ -54,6 +54,15 @@ Copy-Item (Join-Path $root "Install-AIMonitor.ps1") $bundleContentDir -Force
 # bliebe auf dem Zielrechner kein Weg zum Deinstallieren.
 Copy-Item (Join-Path $root "Uninstall-AIMonitor.ps1") $bundleContentDir -Force
 Copy-Item (Join-Path $root "AI-Monitor deinstallieren.bat") $bundleContentDir -Force
+
+# Versionsnummer aus config.py ziehen und beilegen, damit der Installer sie
+# fuer den "Apps & Features"-Eintrag kennt (config.py selbst wird nicht
+# mitgeliefert - nur die Zahl).
+$ver = "0.0.0"
+$m = Select-String -Path (Join-Path $root "config.py") -Pattern 'VERSION\s*=\s*["'']([^"'']+)["'']' | Select-Object -First 1
+if ($m) { $ver = $m.Matches[0].Groups[1].Value }
+Set-Content -Path (Join-Path $bundleContentDir "VERSION.txt") -Value $ver -NoNewline -Encoding ascii
+Write-Host "    Version: $ver"
 $zipPath = Join-Path $stagingDir "bundle.zip"
 Compress-Archive -Path (Join-Path $bundleContentDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 

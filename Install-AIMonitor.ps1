@@ -66,8 +66,20 @@ $agentTask   = "AIMonitorSessionAgent"
 $uninstSrc   = Join-Path $root "Uninstall-AIMonitor.ps1"
 $uninstBatSrc = Join-Path $root "AI-Monitor deinstallieren.bat"
 $uninstDst   = Join-Path $binDir "Uninstall-AIMonitor.ps1"
-$version     = "1.4.0"
 $arpKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMonitor"
+
+# Versionsnummer: aus der vom Paketierer beigelegten VERSION.txt, sonst per
+# Regex aus config.py (manuelle Installation aus dem Quellordner), sonst
+# Fallback. Einzige Quelle ist config.py -> VERSION.
+$version = "2.0.0"
+$verFile = Join-Path $root "VERSION.txt"
+$cfgFile = Join-Path $root "config.py"
+if (Test-Path $verFile) {
+    $version = (Get-Content -Raw $verFile).Trim()
+} elseif (Test-Path $cfgFile) {
+    $m = Select-String -Path $cfgFile -Pattern 'VERSION\s*=\s*["'']([^"'']+)["'']' | Select-Object -First 1
+    if ($m) { $version = $m.Matches[0].Groups[1].Value }
+}
 
 if (-not (Test-Path $svcSrc) -or -not (Test-Path $dashSrc) -or -not (Test-Path $agentSrc)) {
     Write-Error "dist\ nicht gefunden oder unvollstaendig. Bitte zuerst build.ps1 ausfuehren."

@@ -10,6 +10,7 @@ from tkinter import ttk, messagebox, filedialog
 from datetime import datetime
 from pathlib import Path
 
+import config
 import database as db
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
@@ -78,7 +79,7 @@ class LoginWindow:
         # extra height. The status line below the button also needs room, or
         # error messages ("Falscher Benutzername …") land off-screen on this
         # fixed-size, non-resizable window and look like no feedback at all.
-        height = 500 if not db.has_credentials() else 380
+        height = 520 if not db.has_credentials() else 400
         center_window(self.root, 420, height)
         self._build()
 
@@ -90,6 +91,8 @@ class LoginWindow:
                  bg=BG0, fg=ACC).pack()
         tk.Label(hdr, text="Berufsweltmeisterschaften · Überwachungssystem",
                  font=("Segoe UI", 9), bg=BG0, fg=TEXT2).pack(pady=(2, 0))
+        tk.Label(hdr, text=f"Version {config.VERSION}",
+                 font=("Segoe UI", 8), bg=BG0, fg=TEXT2).pack(pady=(1, 0))
 
         # Card
         card = tk.Frame(self.root, bg=BG1, bd=0, relief="flat")
@@ -221,7 +224,9 @@ class ViewerWindow:
         topbar.pack_propagate(False)
 
         tk.Label(topbar, text="AI-Monitor", font=("Segoe UI", 14, "bold"),
-                 bg=BG1, fg=ACC).pack(side="left", padx=16, pady=12)
+                 bg=BG1, fg=ACC).pack(side="left", padx=(16, 4), pady=12)
+        tk.Label(topbar, text=f"v{config.VERSION}", font=("Segoe UI", 8),
+                 bg=BG1, fg=TEXT2).pack(side="left", pady=16)
 
         self.stats_var = tk.StringVar()
         tk.Label(topbar, textvariable=self.stats_var, font=FONT,
@@ -583,6 +588,11 @@ def _set_credentials_cli():
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--set-credentials":
         _set_credentials_cli()
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--version":
+        _attach_console()
+        print(config.VERSION)
+        sys.exit(0)
 
     if len(sys.argv) > 1 and sys.argv[1] == "--has-credentials":
         # Silent probe for the installer: exit 0 if an admin login is already

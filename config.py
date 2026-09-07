@@ -2,6 +2,11 @@ import os
 import sys
 from pathlib import Path
 
+# Single source of truth for the version. Shown in the dashboard/login UI and
+# read (via regex or the bundled VERSION.txt) by Install-AIMonitor.ps1 for the
+# "Apps & Features" entry. Bump this on every release.
+VERSION = "2.0.0"
+
 # Resolve the data directory (DB + screenshots) to a fixed, installation-wide
 # location rather than "next to the running exe" — the service EXE and the
 # dashboard EXE live in different install subfolders, so anchoring to their
