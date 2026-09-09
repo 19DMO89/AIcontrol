@@ -27,7 +27,15 @@
     Run:         Right-click -> "Run with PowerShell" (requests administrator
                  rights automatically), or:
                  powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
+
+    Options:     -ResetCredentials   on an upgrade, force a new dashboard
+                                     username/password instead of keeping
+                                     the existing one (e.g. to lock out
+                                     whoever set the test credentials).
 #>
+param(
+    [switch]$ResetCredentials
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -35,8 +43,10 @@ $ErrorActionPreference = "Stop"
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
     Write-Host "Restarting with administrator rights (confirm the UAC prompt) ..." -ForegroundColor Yellow
+    $relArgs = @("-ExecutionPolicy", "Bypass", "-File", "`"$($MyInvocation.MyCommand.Path)`"")
+    if ($ResetCredentials) { $relArgs += "-ResetCredentials" }
     try {
-        Start-Process powershell -Verb RunAs -Wait -ArgumentList "-ExecutionPolicy", "Bypass", "-File", "`"$($MyInvocation.MyCommand.Path)`"" -ErrorAction Stop
+        Start-Process powershell -Verb RunAs -Wait -ArgumentList $relArgs -ErrorAction Stop
     } catch {
         Write-Host ""
         Write-Host "Administrator rights were not granted (UAC cancelled?)." -ForegroundColor Red
@@ -69,7 +79,7 @@ $arpKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMoni
 # Version number: from the VERSION.txt the packager bundles, otherwise via a
 # regex on config.py (manual install from the source folder), otherwise a
 # fallback. The single source is config.py -> VERSION.
-$version = "3.0.0"
+$version = "3.1.0"
 $verFile = Join-Path $root "VERSION.txt"
 $cfgFile = Join-Path $root "config.py"
 if (Test-Path $verFile) {
@@ -300,22 +310,33 @@ Write-Host " Installation complete." -ForegroundColor Green
 Write-Host "============================================================"
 Write-Host ""
 
-# ── Set admin credentials if none exist yet ─────────────────────────────────
-# On an upgrade the credentials are already in the database - don't ask for
-# them again (otherwise every re-install would require a new password).
+# ── Set admin credentials ──────────────────────────────────────────────────
+# On an upgrade the credentials are already in the database. By default they
+# are kept (otherwise every re-install would require a new password), but the
+# installer offers to replace them - useful to lock out whoever set the test
+# credentials before handing the machine over.
 # Start-Process -Wait, because the dashboard is a GUI application - a bare
 # "& $dashExe" would not wait reliably or return an exit code. The
 # --has-credentials path opens no window.
 $credProbe = Start-Process -FilePath $dashExe -ArgumentList "--has-credentials" `
     -Wait -PassThru -WindowStyle Hidden
-if ($credProbe.ExitCode -eq 0) {
-    Write-Host "Existing dashboard credentials are kept unchanged." -ForegroundColor Green
-} else {
+$haveCreds = ($credProbe.ExitCode -eq 0)
+
+$setNew = $true
+if ($haveCreds -and -not $ResetCredentials) {
+    Write-Host "Existing dashboard credentials found." -ForegroundColor Cyan
+    $answer = Read-Host "Keep them? Press Enter to keep, or type 'n' to set a new username/password"
+    $setNew = ($answer -in @("n", "no"))
+}
+
+if ($setNew) {
     Write-Host "Now set a username/password for the dashboard:" -ForegroundColor Yellow
     Write-Host "(IMPORTANT: do this now, before the PC is handed to participants" -ForegroundColor Yellow
     Write-Host " - otherwise whoever opens the dashboard icon first can do it.)" -ForegroundColor Yellow
     Write-Host ""
     & $dashExe --set-credentials
+} else {
+    Write-Host "Existing dashboard credentials are kept unchanged." -ForegroundColor Green
 }
 
 Write-Host ""

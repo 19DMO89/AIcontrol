@@ -2,6 +2,18 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.1.0 — 2026-09-09
+
+### Added
+- **"Change credentials" in the dashboard.** The signed-in admin can set a
+  fresh username/password (top bar → *Change credentials*). Intended for
+  handing a machine over: change the credentials so whoever set the test
+  login can no longer open the dashboard.
+- **The installer offers to replace the credentials on an upgrade.** It now
+  asks "Keep them? [Enter to keep / n for new]" instead of silently keeping
+  the existing login. `Install-AIMonitor.ps1 -ResetCredentials` forces a new
+  login non-interactively.
+
 ## v3.0.0 — 2026-09-09
 
 ### Changed

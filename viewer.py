@@ -252,6 +252,7 @@ class ViewerWindow:
 
         # Right buttons
         for label, cmd in [
+            (t("app.change_creds", lang), self._change_credentials),
             (t("app.export_csv", lang), self._export_csv),
             (t("app.ack_all", lang),    self._ack_all),
             (t("app.refresh", lang),    self._refresh),
@@ -264,9 +265,9 @@ class ViewerWindow:
         make_lang_switch(topbar, lang, self.on_set_lang, BG1).pack(
             side="right", padx=8, pady=14)
 
-        tk.Label(topbar, text=t("app.signed_in_as", lang, name=self.admin),
-                 font=("Segoe UI", 9), bg=BG1, fg=TEXT2).pack(
-                     side="right", padx=12)
+        self._name_lbl = tk.Label(topbar, text=t("app.signed_in_as", lang, name=self.admin),
+                                  font=("Segoe UI", 9), bg=BG1, fg=TEXT2)
+        self._name_lbl.pack(side="right", padx=12)
 
         # ── Filter bar ────────────────────────────────────────────────────────
         fbar = tk.Frame(self.root, bg=BG0, height=40)
@@ -496,6 +497,65 @@ class ViewerWindow:
                                t("dlg.ack_all_msg", self.lang)):
             db.acknowledge_all()
             self._refresh()
+
+    def _change_credentials(self):
+        """Let the signed-in admin set a fresh username/password - e.g. to
+        lock out whoever set the test credentials before a competition."""
+        lang = self.lang
+        win = tk.Toplevel(self.root)
+        win.title(t("creds.title", lang))
+        win.configure(bg=BG1)
+        win.resizable(False, False)
+        win.transient(self.root)
+        win.grab_set()
+        center_window(win, 380, 250)
+
+        def row(label_key, r, show=None):
+            tk.Label(win, text=t(label_key, lang), font=FONT, bg=BG1, fg=TEXT2).grid(
+                row=r, column=0, sticky="w", padx=20, pady=(10, 2))
+            var = tk.StringVar()
+            e = tk.Entry(win, textvariable=var, show=show, font=FONT, bg=BG2,
+                         fg=TEXT, insertbackground=TEXT, relief="flat", bd=6, width=28)
+            e.grid(row=r + 1, column=0, padx=20, sticky="ew")
+            return var
+
+        user_var = row("creds.new_username", 0)
+        pw_var   = row("creds.new_password", 2, show="•")
+        pw2_var  = row("creds.confirm", 4, show="•")
+        user_var.set(self.admin)
+
+        status = tk.StringVar()
+        tk.Label(win, textvariable=status, font=("Segoe UI", 9), bg=BG1,
+                 fg=CRIT, wraplength=320).grid(row=6, column=0, padx=20, pady=(8, 0))
+
+        def save():
+            u, p, p2 = user_var.get().strip(), pw_var.get(), pw2_var.get()
+            if len(u) < 2:
+                status.set(t("login.err_user_short", lang)); return
+            if len(p) < 6:
+                status.set(t("login.err_pw_short", lang)); return
+            if p != p2:
+                status.set(t("login.err_pw_match", lang)); return
+            db.set_credentials(u, p)
+            self.admin = u
+            win.destroy()
+            messagebox.showinfo(t("creds.title", lang), t("creds.saved", lang))
+            self._show_topbar_name()
+
+        btns = tk.Frame(win, bg=BG1)
+        btns.grid(row=7, column=0, pady=(10, 12))
+        tk.Button(btns, text=t("creds.save", lang), command=save, bg=ACC, fg="white",
+                  font=FONT_B, relief="flat", bd=0, padx=14, pady=6,
+                  cursor="hand2", activebackground="#c73652").pack(side="left", padx=4)
+        tk.Button(btns, text=t("creds.cancel", lang), command=win.destroy, bg=BG2,
+                  fg=TEXT, font=FONT, relief="flat", bd=0, padx=14, pady=6,
+                  cursor="hand2", activebackground=BG3).pack(side="left", padx=4)
+        win.columnconfigure(0, weight=1)
+
+    def _show_topbar_name(self):
+        """Refresh the "signed in as" label after a username change."""
+        if getattr(self, "_name_lbl", None):
+            self._name_lbl.configure(text=t("app.signed_in_as", self.lang, name=self.admin))
 
     def _delete_selected(self, _event=None):
         sel = self.tree.selection()

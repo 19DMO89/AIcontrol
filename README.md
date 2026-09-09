@@ -50,9 +50,14 @@ Just run the new `AIMonitor-Setup.exe` over the old one (double-click →
 UAC). The installer detects the existing installation and performs a clean
 upgrade: the service and session-agent task are re-registered, a running
 dashboard is closed first, and the **database, screenshots and password are
-kept**. No password prompt on an upgrade, no prior uninstall needed. Already
-logged events are not rewritten — a language switch or a detection change
-only affects new events.
+kept**. No prior uninstall needed. Already logged events are not rewritten —
+a language switch or a detection change only affects new events.
+
+On an upgrade the installer asks whether to keep the existing dashboard
+login or set a new one. Set a new one when you take a machine over from
+whoever tested it, so their login no longer works. (Or, without
+reinstalling: **Change credentials** in the dashboard top bar. Or run
+`Install-AIMonitor.ps1 -ResetCredentials`.)
 
 ## Build & package (developers only)
 

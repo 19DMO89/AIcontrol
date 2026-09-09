@@ -5,7 +5,7 @@ from pathlib import Path
 # Single source of truth for the version. Shown in the dashboard/login UI and
 # read (via regex or the bundled VERSION.txt) by Install-AIMonitor.ps1 for the
 # "Apps & Features" entry. Bump this on every release.
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 # Default UI / event language ("en" or "de"). The active language is stored
 # per installation in the database (settings table) and can be switched in
