@@ -1,161 +1,172 @@
 # AI-Monitor
 
-Überwacht einen Windows-Rechner auf Nutzung von KI-Tools (ChatGPT, Claude,
-Copilot, lokale LLMs, KI-Browser-Erweiterungen, verdächtige Zwischenablage-
-Inhalte, ...) und protokolliert Funde inkl. Screenshot in einer lokalen,
-passwortgeschützten Datenbank. Gedacht für Prüfungs-/Wettbewerbssituationen
-(z. B. Berufsweltmeisterschaften), in denen der Einsatz von KI-Hilfsmitteln
-ausgeschlossen sein muss.
+Monitors a Windows machine for the use of AI tools (ChatGPT, Claude,
+Copilot, local LLMs, AI browser extensions, suspicious clipboard content,
+...) and logs findings including a screenshot in a local, password-protected
+database. Intended for exam / competition situations (e.g. WorldSkills) where
+the use of AI aids must be ruled out.
 
-Läuft als Windows-Dienst unter dem `LocalSystem`-Konto, startet automatisch
-mit Windows und ist von einem Standardbenutzer ohne Administratorrechte
-weder zu stoppen noch zu entfernen (eingebautes Windows-SCM-Verhalten).
+Runs as a Windows service under the `LocalSystem` account, starts
+automatically with Windows and cannot be stopped or removed by a standard
+user without administrator rights (built-in Windows SCM behaviour).
 
-## Bestandteile
+The dashboard and event text are available in **English or German**,
+switchable with the `EN | DE` toggle in the dashboard (and on the login
+screen). English is the default; the choice is stored per installation.
 
-| Komponente | Zweck |
+## Components
+
+| Component | Purpose |
 |---|---|
-| `AIMonitorService.exe` | Hintergrunddienst: überwacht Prozesse, Netzwerkverbindungen, Browserverlauf, Zwischenablage |
-| `AISessionAgent.exe` | Läuft in der Nutzersitzung, macht bei Treffern Screenshots (ein Dienst in Session 0 hat keinen Zugriff auf den Desktop) |
-| `AIMonitorDashboard.exe` | Passwortgeschütztes Anzeige-Tool für die protokollierten Ereignisse und Screenshots |
+| `AIMonitorService.exe` | Background service: monitors processes, network connections, browser history, clipboard |
+| `AISessionAgent.exe` | Runs in the user session, takes screenshots on a hit (a service in Session 0 has no access to the desktop) |
+| `AIMonitorDashboard.exe` | Password-protected viewer for the logged events and screenshots |
 
-## Installation (für die meisten: nur das hier lesen)
+## Installation (for most people: read only this)
 
-Unter [Releases](https://github.com/19DMO89/AIcontrol/releases/latest)
-liegt eine fertig gebaute **`AIMonitor-Setup.exe`** zum Download — kein
-Python, kein Bauen nötig. Auf dem Zielrechner (z. B. dem Wettbewerbs-PC):
+A pre-built **`AIMonitor-Setup.exe`** is available for download under
+[Releases](https://github.com/19DMO89/AIcontrol/releases/latest) — no
+Python, no build needed. On the target machine (e.g. the competition PC):
 
-1. `AIMonitor-Setup.exe` herunterladen und doppelklicken.
-2. UAC-Abfrage bestätigen (die Datei fordert die Rechte automatisch an).
-3. Am Ende: Dashboard-Benutzername/-Passwort vergeben, wenn danach gefragt
-   wird (min. 6 Zeichen) — **sofort erledigen**, bevor der PC an
-   Teilnehmer übergeben wird.
+1. Download `AIMonitor-Setup.exe` and double-click it.
+2. Confirm the UAC prompt (the file requests the rights automatically).
+3. At the end: set a dashboard username/password when prompted (min. 6
+   characters) — **do this immediately**, before the PC is handed to
+   participants.
 
-Das war's — Dienst und Session-Agent laufen, auf dem Desktop liegt der
-Ordner **`AI-Monitor`** mit der Dashboard- und einer Deinstallations-
-Verknüpfung.
+That's it — the service and session agent are running, and the desktop has
+an **`AI-Monitor`** folder with the dashboard and an uninstall shortcut.
 
-Die installierte Version steht im Dashboard und im Anmeldefenster (oben
-bzw. unter dem Titel) sowie in den Windows-Einstellungen → Apps.
+The installed version is shown in the dashboard and on the login screen (top
+bar / under the title) and in Windows Settings → Apps.
 
-Programmdateien liegen danach unter `%ProgramData%\AIMonitor\bin` (nur
-lesbar/ausführbar für Standardbenutzer), Datenbank und Screenshots unter
+Program files are then under `%ProgramData%\AIMonitor\bin` (read/execute only
+for standard users), the database and screenshots under
 `%ProgramData%\AIMonitor\data`.
 
-## Bauen & Paketieren (nur für Entwickler)
+### Updating an existing installation
 
-Nötig, wenn du `config.py` (Erkennungsliste) oder den restlichen Code
-änderst und daraus eine neue `AIMonitor-Setup.exe` erzeugen willst.
+Just run the new `AIMonitor-Setup.exe` over the old one (double-click →
+UAC). The installer detects the existing installation and performs a clean
+upgrade: the service and session-agent task are re-registered, a running
+dashboard is closed first, and the **database, screenshots and password are
+kept**. No password prompt on an upgrade, no prior uninstall needed. Already
+logged events are not rewritten — a language switch or a detection change
+only affects new events.
 
-Voraussetzungen: Windows, Python 3.10+, Abhängigkeiten installiert:
+## Build & package (developers only)
+
+Needed when you change `config.py` (the detection list) or the rest of the
+code and want to produce a new `AIMonitor-Setup.exe` from it.
+
+Requirements: Windows, Python 3.10+, dependencies installed:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-1. **Bauen** (erstellt `dist\AIMonitorService`, `dist\AIMonitorDashboard.exe`,
-   `dist\AISessionAgent.exe` per PyInstaller):
+1. **Build** (creates `dist\AIMonitorService`, `dist\AIMonitorDashboard.exe`,
+   `dist\AISessionAgent.exe` via PyInstaller):
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File build.ps1
    ```
 
-2. **Paketieren** (packt `dist\` + `Install-AIMonitor.ps1` +
-   `Uninstall-AIMonitor.ps1` in eine einzige `AIMonitor-Setup.exe`, siehe
-   oben):
+2. **Package** (packs `dist\` + `Install-AIMonitor.ps1` +
+   `Uninstall-AIMonitor.ps1` into a single `AIMonitor-Setup.exe`, see
+   above):
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File package.ps1
    ```
 
-   Braucht nur `csc.exe` (Teil jeder .NET-Framework-Installation, kein
-   Zusatzwerkzeug). `AIMonitor-Setup.exe` liegt danach im Projektordner und
-   kann auf beliebig viele Zielrechner kopiert werden.
+   Only needs `csc.exe` (part of every .NET Framework install, no extra
+   tooling). `AIMonitor-Setup.exe` is then in the project folder and can be
+   copied to any number of target machines.
 
-### Manuell installieren (ohne AIMonitor-Setup.exe)
+The version number has a single source: `VERSION` in `config.py`. Bump it
+there; the dashboard UI and the installer pick it up.
 
-Alternativ direkt aus dem gebauten `dist\` heraus installieren, z. B. zum
-Testen auf dem Entwickler-Rechner selbst:
+### Manual install (without AIMonitor-Setup.exe)
+
+Alternatively install directly from the built `dist\`, e.g. for testing on
+the developer machine itself:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
 ```
 
-Alternativ per Doppelklick auf `AI-Monitor installieren.bat`. Fordert
-automatisch Administratorrechte per UAC an.
+Or double-click `Install AI-Monitor.bat`. Requests administrator rights via
+UAC automatically.
 
-> **Häufigster Fehler:** `dist\ nicht gefunden oder unvollstaendig.`
-> Das bedeutet, Schritt 1 (`build.ps1`) wurde noch nicht oder nicht
-> vollständig ausgeführt.
+> **Most common error:** `dist\ not found or incomplete.` This means step 1
+> (`build.ps1`) has not been run, or not completely.
 
-Fertige `AIMonitor-Setup.exe` als neues Release veröffentlichen:
+Publish a finished `AIMonitor-Setup.exe` as a new release:
 
 ```powershell
 gh release create vX.Y.Z AIMonitor-Setup.exe --title "vX.Y.Z" --notes "..."
 ```
 
-## Deinstallation
+## Uninstall
 
-Die Installation legt einen Eintrag **„AI-Monitor"** unter Windows-
-Einstellungen → *Apps* (bzw. *Systemsteuerung → Programme und Features*) an.
-Von dort „Deinstallieren" wählen — die UAC-Abfrage bestätigen, fertig.
+The installation adds an **"AI-Monitor"** entry under Windows Settings →
+*Apps* (or *Control Panel → Programs and Features*). Choose "Uninstall"
+there — confirm the UAC prompt, done.
 
-Alternativ direkt das mitinstallierte Skript ausführen:
+Alternatively run the installed script directly:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File "%ProgramData%\AIMonitor\bin\Uninstall-AIMonitor.ps1"
 ```
 
-bzw. im Entwickler-Ordner:
+or in the developer folder:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Uninstall-AIMonitor.ps1
 ```
 
-Erfordert Administratorrechte (bewusst so, damit Teilnehmer die Überwachung
-nicht selbst entfernen können). Optionen:
+Requires administrator rights (deliberately, so participants cannot remove
+the monitoring themselves). Options:
 
-- `-KeepData` — Datenbank/Screenshots unter `%ProgramData%\AIMonitor\data`
-  behalten statt zu löschen
-- `-Force` — ohne Rückfrage deinstallieren
+- `-KeepData` — keep the database/screenshots under
+  `%ProgramData%\AIMonitor\data` instead of deleting them
+- `-Force` — uninstall without confirmation
 
-Alternativ per Doppelklick auf `AI-Monitor deinstallieren.bat` (liegt nach
-der Installation auch unter `%ProgramData%\AIMonitor\bin`).
+Or double-click `Uninstall AI-Monitor.bat` (also placed under
+`%ProgramData%\AIMonitor\bin` after installation).
 
-## Fehlersuche
+## Troubleshooting
 
-Startet der Dienst nach der Installation nicht (Windows-Ereignis 7009 /
-Timeout), liefert das Diagnose-Skript eine genaue Fehlerausgabe, indem es
-die installierte Dienst-EXE einmalig unter dem SYSTEM-Konto ausführt —
-demselben Kontext, den der echte Dienst nutzt:
+If the service does not start after installation (Windows Event 7009 /
+timeout), the diagnostics script produces a precise error output by running
+the installed service EXE once under the SYSTEM account — the same context
+the real service uses:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File Diagnose-AIMonitor.ps1
 ```
 
-Ergebnis landet in `diagnose_output.log`. Alternativ per Doppelklick auf
-`AI-Monitor Diagnose.bat`.
+The result lands in `diagnose_output.log`. Or double-click
+`AI-Monitor Diagnostics.bat`.
 
-## Änderungsverlauf
+## Changelog
 
-Siehe [CHANGELOG.md](CHANGELOG.md).
+See [CHANGELOG.md](CHANGELOG.md).
 
-## Was wird erkannt?
+## What is detected?
 
-Die überwachten Domains, Prozessnamen, Fenstertitel-Schlagwörter und
-Zwischenablage-Muster stehen in `config.py` und können dort erweitert
-werden (z. B. `AI_DOMAINS`, `AI_PROCESSES`, `AI_WINDOW_KEYWORDS`,
-`AI_CLIPBOARD_PATTERNS`). Nach einer Änderung muss neu gebaut und neu
-installiert werden (Schritte 1 und 2 oben), da der Python-Quellcode
-vollständig in die EXE-Dateien kompiliert wird.
+The monitored domains, process names, window-title keywords and clipboard
+patterns are in `config.py` and can be extended there (e.g. `AI_DOMAINS`,
+`AI_PROCESSES`, `AI_WINDOW_KEYWORDS`, `AI_CLIPBOARD_PATTERNS`). After a
+change you must rebuild and reinstall (steps 1 and 2 above), because the
+Python source is compiled entirely into the EXE files.
 
-`AI_PROCESSES`-Einträge werden gegen den *exakten* Prozess-/Dateinamen
-geprüft (nicht als Teilstring gegen den ganzen Pfad); Domains werden auf
-echter Label-Grenze erkannt (`x.ai` passt auf `api.x.ai`, nicht auf
-`climax.airlines.com`).
+`AI_PROCESSES` entries are matched against the *exact* process / file name
+(not as a substring of the full path); domains are matched on a real label
+boundary (`x.ai` matches `api.x.ai`, not `climax.airlines.com`).
 
-**Wiederholte Nutzung:** Dieselbe App/Domain/URL wird einmal pro
-Zeitfenster protokolliert und danach im nächsten Fenster wieder — so wird
-auch mehrfache Nutzung sichtbar, statt zu einem einzigen Lifetime-Eintrag
-zu verschmelzen. Fensterlänge: `REDETECT_AFTER` in `config.py`
-(Standard 5 Minuten).
+**Repeated use:** the same app/domain/URL is logged once per time window and
+again in the next window — so repeated use stays visible instead of
+collapsing into a single lifetime entry. Window length: `REDETECT_AFTER` in
+`config.py` (default 5 minutes).

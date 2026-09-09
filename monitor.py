@@ -20,6 +20,7 @@ import psutil
 
 import config
 import database as db
+import i18n
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -39,10 +40,21 @@ def log(msg):
 # leave a screenshot request for session_agent.py - a separate process that
 # runs in the competitor's own logon session, where screen capture actually
 # works - to fulfill asynchronously.
+#
+# Event title/details are rendered here in the installation's configured
+# language (settings table). A later language switch only affects new events;
+# already-logged entries keep their wording, like any audit log.
 
-def log_event(event_type, severity, title, details=None, event_key=None):
+def _lang() -> str:
+    return i18n.normalize(db.get_setting("language", config.DEFAULT_LANGUAGE))
+
+
+def log_event(event_type, severity, msg_key, event_key=None, screenshot=True, **args):
+    lang = _lang()
+    title = i18n.t(f"{msg_key}.title", lang, **args)
+    details = i18n.t(f"{msg_key}.details", lang, **args)
     event_id = db.log_event(event_type, severity, title, details=details, event_key=event_key)
-    if event_id and config.SCREENSHOT_ON_DETECTION:
+    if event_id and screenshot and config.SCREENSHOT_ON_DETECTION:
         db.request_screenshot(event_id)
     return event_id
 
@@ -159,21 +171,18 @@ def _check_single_connection(conn_info):
             pass
 
         eid = log_event(
-            event_type="network",
-            severity="critical",
-            title=f"KI-Verbindung: {matched}",
-            details=f"Prozess: {proc_name}  |  IP: {ip}  |  Host: {hostname}  |  Port: {port}",
-            event_key=key,
+            "network", "critical", "event.network", event_key=key,
+            domain=matched, proc=proc_name, ip=ip, host=hostname, port=port,
         )
         if eid:
             _mark_logged(key)
-            log(f"[NETZWERK] KI-Verbindung erkannt → {hostname} ({matched}) via {proc_name}")
+            log(f"[NETWORK] AI connection detected -> {hostname} ({matched}) via {proc_name}")
     except Exception:
         pass
 
 
 def monitor_network():
-    log("Netzwerk-Monitor gestartet")
+    log("Network monitor started")
     while True:
         try:
             conns = psutil.net_connections(kind="tcp")
@@ -216,37 +225,38 @@ def _match_ai_process(name: str, exe: str) -> str | None:
     return None
 
 
-def _classify_process(name: str, exe: str, matched_rule: str) -> tuple[str, str]:
-    """Return (human_label, unique_event_key) for a matched AI process."""
+def _classify_process(name: str, exe: str, matched_rule: str) -> tuple[str, dict, str]:
+    """Return (label_key, label_args, event_key_base) for a matched AI process.
+    label_key indexes proclabel.* in i18n; label_args fills its placeholders."""
     exe_l = exe.lower()
     name_l = name.lower()
 
-    # Claude Desktop App vs Claude Code CLI
+    # Claude desktop app vs Claude Code CLI
     if "claude" in name_l:
         if "claude-code" in exe_l or "anthropic-ai" in exe_l or "node_modules" in exe_l:
-            return "Claude Code CLI (KI-Coding-Assistent)", "proc_claude_code_cli"
+            return "claude_code", {}, "proc_claude_code_cli"
         if "windowsapps" in exe_l or "program files" in exe_l:
-            return "Claude Desktop App", "proc_claude_desktop"
-        return f"Claude ({name})", f"proc_claude_{name_l}"
+            return "claude_desktop", {}, "proc_claude_desktop"
+        return "claude_generic", {"name": name}, f"proc_claude_{name_l}"
 
-    # ChatGPT Desktop
+    # ChatGPT desktop
     if "chatgpt" in name_l or ("chatgpt" in exe_l):
-        return "ChatGPT Desktop App", "proc_chatgpt_desktop"
+        return "chatgpt", {}, "proc_chatgpt_desktop"
 
     # Cursor / Windsurf IDE
     if "cursor" in name_l or "cursor" in exe_l:
-        return "Cursor KI-IDE", "proc_cursor"
+        return "cursor", {}, "proc_cursor"
     if "windsurf" in name_l or "windsurf" in exe_l:
-        return "Windsurf KI-IDE", "proc_windsurf"
+        return "windsurf", {}, "proc_windsurf"
 
     # Generic: deduplicate by exe path bucket (strip version numbers)
     import hashlib
     path_key = hashlib.md5(exe_l.encode()).hexdigest()[:8]
-    return f"{name} (Regel: {matched_rule})", f"proc_{name_l}_{path_key}"
+    return "generic", {"name": name, "rule": matched_rule}, f"proc_{name_l}_{path_key}"
 
 
 def monitor_processes():
-    log("Prozess-Monitor gestartet")
+    log("Process monitor started")
     while True:
         try:
             for proc in psutil.process_iter(["pid", "name", "exe"]):
@@ -259,21 +269,19 @@ def monitor_processes():
                     if not ai_proc:
                         continue
 
-                    label, app_base = _classify_process(name.lower(), exe.lower(), ai_proc)
+                    label_key, label_args, app_base = _classify_process(name, exe, ai_proc)
                     key = _bkey(app_base)
                     if _already_logged(key):
                         continue
 
+                    label = i18n.t(f"proclabel.{label_key}", _lang(), **label_args)
                     eid = log_event(
-                        event_type="process",
-                        severity="critical",
-                        title=f"KI-Programm erkannt: {label}",
-                        details=f"Pfad: {exe or 'unbekannt'}\nPID: {pid}",
-                        event_key=key,
+                        "process", "critical", "event.process", event_key=key,
+                        label=label, path=exe or "unknown", pid=pid,
                     )
                     if eid:
                         _mark_logged(key)
-                        log(f"[PROZESS] KI-App erkannt: {label} (PID {pid})")
+                        log(f"[PROCESS] AI app detected: {label} (PID {pid})")
                 except (psutil.NoSuchProcess, psutil.AccessDenied):
                     pass
         except Exception:
@@ -349,15 +357,12 @@ def _check_browser_rows(rows, browser: str):
                 break
 
             eid = log_event(
-                event_type="browser",
-                severity="critical",
-                title=f"KI-Webseite geöffnet ({browser}): {domain}",
-                details=f"URL: {url[:300]}\nTitel: {title}",
-                event_key=key,
+                "browser", "critical", "event.browser", event_key=key,
+                browser=browser, domain=domain, url=url[:300], title=title,
             )
             if eid:
                 _mark_logged(key)
-                log(f"[BROWSER] KI-URL erkannt ({browser}): {url[:80]}")
+                log(f"[BROWSER] AI URL detected ({browser}): {url[:80]}")
             break
 
 
@@ -408,7 +413,7 @@ def _real_user_appdata_dirs() -> list[tuple[Path, Path]]:
 
 
 def monitor_browser():
-    log("Browser-Monitor gestartet")
+    log("Browser history monitor started")
 
     while True:
         since = time.time() - config.BROWSER_CHECK_INTERVAL * 3
@@ -477,7 +482,7 @@ def _read_clipboard() -> str:
 
 def monitor_clipboard():
     global _last_clipboard
-    log("Zwischenablage-Monitor gestartet")
+    log("Clipboard monitor started")
     while True:
         try:
             text = _read_clipboard()
@@ -501,16 +506,14 @@ def monitor_clipboard():
                     key = _bkey(f"clip_{text_hash}")
                     if not _already_logged(key):
                         excerpt = text[:400].replace("\n", " ")
-                        eid = db.log_event(
-                            event_type="clipboard",
-                            severity="warning",
-                            title="KI-typischer Text in Zwischenablage",
-                            details=f'Muster: "{matched_pattern}"\n\nAuszug: {excerpt}…',
-                            event_key=key,
+                        eid = log_event(
+                            "clipboard", "warning", "event.clipboard",
+                            event_key=key, screenshot=False,
+                            pattern=matched_pattern, excerpt=excerpt,
                         )
                         if eid:
                             _mark_logged(key)
-                            log(f"[CLIPBOARD] Verdächtiger Text erkannt (Muster: {matched_pattern})")
+                            log(f"[CLIPBOARD] Suspicious text detected (pattern: {matched_pattern})")
         except Exception:
             pass
         time.sleep(config.CLIPBOARD_CHECK_INTERVAL)
@@ -522,7 +525,7 @@ def monitor_clipboard():
 # which don't reverse-resolve to their real hostname.
 
 def monitor_dns_cache():
-    log("DNS-Cache-Monitor gestartet")
+    log("DNS cache monitor started")
     import subprocess
     while True:
         try:
@@ -548,15 +551,12 @@ def monitor_dns_cache():
                 # Try to find which process owns connections to this domain
                 proc_name = _find_proc_for_domain(domain)
                 eid = log_event(
-                    event_type="network",
-                    severity="critical",
-                    title=f"KI-Dienst im DNS-Cache: {domain}",
-                    details=f"Domain im Windows DNS-Cache gefunden — Verbindung wurde hergestellt.\nProzess: {proc_name}",
-                    event_key=key,
+                    "network", "critical", "event.dns", event_key=key,
+                    domain=domain, proc=proc_name,
                 )
                 if eid:
                     _mark_logged(key)
-                    log(f"[DNS] KI-Domain erkannt: {domain} (Prozess: {proc_name})")
+                    log(f"[DNS] AI domain detected: {domain} (process: {proc_name})")
         except Exception:
             pass
         time.sleep(15)
@@ -567,7 +567,7 @@ def _find_proc_for_domain(domain: str) -> str:
     try:
         ip = socket.gethostbyname(domain)
     except Exception:
-        return "unbekannt"
+        return "unknown"
     try:
         for conn in psutil.net_connections(kind="tcp"):
             if conn.raddr and conn.raddr.ip == ip and conn.pid:
@@ -577,7 +577,7 @@ def _find_proc_for_domain(domain: str) -> str:
                     pass
     except Exception:
         pass
-    return "unbekannt"
+    return "unknown"
 
 
 # ── Flutter / unknown-exe window monitor ──────────────────────────────────────
@@ -619,7 +619,7 @@ def _get_window_title(hwnd) -> str:
 
 
 def monitor_flutter_windows():
-    log("Flutter-Fenster-Monitor gestartet")
+    log("Flutter window monitor started")
     while True:
         try:
             for hwnd in _enum_top_level_windows():
@@ -637,7 +637,7 @@ def monitor_flutter_windows():
 
                     pid = ctypes.wintypes.DWORD()
                     ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-                    exe = "unbekannt"
+                    exe = "unknown"
                     try:
                         exe = psutil.Process(pid.value).exe()
                     except Exception:
@@ -648,15 +648,12 @@ def monitor_flutter_windows():
                         continue
 
                     eid = log_event(
-                        event_type="process",
-                        severity="critical",
-                        title=f"KI-Programm erkannt (eigenständige App): {title}",
-                        details=f"Fenstertitel: {title}\nPfad: {exe}\nPID: {pid.value}\nErkannt via Fenstertitel (Regel: {matched})",
-                        event_key=key,
+                        "process", "critical", "event.flutter", event_key=key,
+                        title=title, path=exe, pid=pid.value, rule=matched,
                     )
                     if eid:
                         _mark_logged(key)
-                        log(f"[FENSTER] KI-App erkannt: {title} (PID {pid.value})")
+                        log(f"[WINDOW] AI app detected: {title} (PID {pid.value})")
                 except Exception:
                     pass
         except Exception:
@@ -670,8 +667,8 @@ def main(stop_event: threading.Event | None = None):
     """Run all monitor threads until interrupted (CLI) or stop_event is set (service)."""
     db.init_db()
     session_id = db.start_session()
-    log(f"AI-Monitor gestartet (Session {session_id})")
-    log(f"Datenbank: {Path(config.DB_PATH).resolve()}")
+    log(f"AI-Monitor started (session {session_id})")
+    log(f"Database: {Path(config.DB_PATH).resolve()}")
 
     threads = [
         threading.Thread(target=monitor_network,   daemon=True, name="net"),
@@ -690,7 +687,7 @@ def main(stop_event: threading.Event | None = None):
     except KeyboardInterrupt:
         pass
     finally:
-        log("Monitor gestoppt.")
+        log("Monitor stopped.")
         db.end_session(session_id)
 
 

@@ -1,20 +1,18 @@
 """
-AI-Monitor Sitzungs-Agent
+AI-Monitor session agent
 
-Laeuft in der Sitzung des angemeldeten Benutzers (nicht als SYSTEM) - der
-Hauptdienst (monitor_service.py) laeuft als LocalSystem in Session 0, die
-keinen Desktop hat, und kann deshalb technisch keinen Screenshot machen
-(Windows-Sicherheitsgrenze, kein Bug). Dieser Agent erledigt genau das:
-er wartet auf Screenshot-Anfragen des Dienstes (ueber die gemeinsame
-Datenbank) und erfuellt sie aus der Sitzung heraus, wo ein echter Desktop
-existiert.
+Runs in the session of the logged-in user (not as SYSTEM) - the main service
+(monitor_service.py) runs as LocalSystem in Session 0, which has no desktop
+and therefore cannot technically take a screenshot (a Windows security
+boundary, not a bug). This agent does exactly that: it waits for screenshot
+requests from the service (via the shared database) and fulfils them from
+the session, where a real desktop exists.
 
-Wird per Aufgabenplanung bei jeder Anmeldung automatisch gestartet (siehe
-Install-AIMonitor.ps1) - die Aufgabendefinition selbst kann ein
-Standardbenutzer nicht loeschen/deaktivieren (liegt in einem admin-
-geschuetzten Systemordner), auch wenn er den laufenden Prozess im
-Taskmanager beenden kann. Die Aufgabenplanung startet ihn dann bei der
-naechsten Anmeldung ohnehin wieder.
+Started automatically at every logon via Task Scheduler (see
+Install-AIMonitor.ps1) - a standard user cannot delete/disable the task
+definition itself (it lives in an admin-protected system folder), even
+though they can end the running process in Task Manager. Task Scheduler then
+starts it again at the next logon anyway.
 """
 
 import time
@@ -25,8 +23,8 @@ import config
 import database as db
 
 POLL_INTERVAL = 1.5
-# Anfragen, die laenger als das hier unbeantwortet sind (z.B. weil der
-# Bildschirm gesperrt war), werden aufgegeben statt endlos neu versucht.
+# Requests left unanswered longer than this (e.g. because the screen was
+# locked) are abandoned rather than retried forever.
 MAX_REQUEST_AGE_SECONDS = 120
 
 

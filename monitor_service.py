@@ -1,15 +1,15 @@
 """
-AI-Monitor Windows-Dienst
+AI-Monitor Windows service
 
-Laeuft als "AIMonitor"-Dienst unter dem LocalSystem-Konto. Ein Dienst kann von
-einem Standardbenutzer (ohne Administratorrechte) weder gestoppt noch entfernt
-werden - das ist Standard-Windows-Verhalten fuer den Service Control Manager
-und der eigentliche Manipulationsschutz, nicht irgendein Trick in diesem Code.
+Runs as the "AIMonitor" service under the LocalSystem account. A standard
+user (without administrator rights) can neither stop nor remove a service -
+that is standard Windows behaviour for the Service Control Manager and the
+actual tamper protection, not some trick in this code.
 
-Manuelle Verwaltung (nur zu Testzwecken, normalerweise macht Install-AIMonitor.ps1 das):
+Manual management (for testing only, normally Install-AIMonitor.ps1 does it):
     AIMonitorService.exe install
     AIMonitorService.exe start
-    net stop AIMonitor      (erfordert Administratorrechte)
+    net stop AIMonitor      (requires administrator rights)
     AIMonitorService.exe remove
 """
 
@@ -85,10 +85,10 @@ except Exception as e:
 
 class AIMonitorService(win32serviceutil.ServiceFramework):
     _svc_name_ = "AIMonitor"
-    _svc_display_name_ = "AI-Monitor (Berufsweltmeisterschaften)"
+    _svc_display_name_ = "AI-Monitor (WorldSkills)"
     _svc_description_ = (
-        "Ueberwacht Netzwerk-, Prozess-, Browser- und Zwischenablage-Aktivitaet "
-        "auf KI-Nutzung waehrend der Berufsweltmeisterschaften."
+        "Monitors network, process, browser and clipboard activity for AI "
+        "use during WorldSkills competitions."
     )
 
     def __init__(self, args):
@@ -107,10 +107,10 @@ class AIMonitorService(win32serviceutil.ServiceFramework):
 
     def SvcDoRun(self):
         try:
-            # Muss VOR der (blockierenden) Monitor-Schleife gemeldet werden - sonst
-            # wartet der Service Control Manager bis zum Timeout (60s) auf eine
-            # Statusmeldung, die nie kommt, und der Dienststart schlaegt fehl
-            # (Ereignis 7009), obwohl der Code an sich einwandfrei laeuft.
+            # Must be reported BEFORE the (blocking) monitor loop - otherwise
+            # the Service Control Manager waits until the timeout (60s) for a
+            # status report that never comes, and the service start fails
+            # (Event 7009) even though the code itself runs fine.
             self.ReportServiceStatus(win32service.SERVICE_RUNNING)
             servicemanager.LogMsg(
                 servicemanager.EVENTLOG_INFORMATION_TYPE,

@@ -5,7 +5,12 @@ from pathlib import Path
 # Single source of truth for the version. Shown in the dashboard/login UI and
 # read (via regex or the bundled VERSION.txt) by Install-AIMonitor.ps1 for the
 # "Apps & Features" entry. Bump this on every release.
-VERSION = "2.0.0"
+VERSION = "3.0.0"
+
+# Default UI / event language ("en" or "de"). The active language is stored
+# per installation in the database (settings table) and can be switched in
+# the dashboard; this is only the value used before anything is stored.
+DEFAULT_LANGUAGE = "en"
 
 # Resolve the data directory (DB + screenshots) to a fixed, installation-wide
 # location rather than "next to the running exe" — the service EXE and the
@@ -29,9 +34,9 @@ AI_DOMAINS = [
     "gemini.google.com",
     "bard.google.com",
     "aistudio.google.com",
-    # Microsoft Copilot - NICHT das nackte "bing.com": Windows 11, Edge, die
-    # Widgets und die Windows-Suche kontaktieren bing.com permanent, voellig
-    # ohne KI-Nutzung (war die Ursache fuer "Chrome/Bing als KI erkannt").
+    # Microsoft Copilot - NOT bare "bing.com": Windows 11, Edge, the widgets
+    # and Windows Search all contact bing.com constantly with zero AI use
+    # (that was the cause of the "Chrome/Bing detected as AI" false positives).
     "copilot.microsoft.com",
     "bing.com/chat",
     "bing.com/copilot",
@@ -104,20 +109,19 @@ AI_DOMAINS = [
     "n8n.io",
 ]
 
-# Local AI process names. Diese werden gegen den *exakten* Prozess-/Datei-
-# namen geprueft (ohne .exe), NICHT als Teilstring gegen den ganzen Pfad -
-# sonst wuerde z.B. "jan" jeden Prozess des Windows-Benutzers "Jan" als
-# KI-Programm melden (Pfad C:\Users\Jan\...).
+# Local AI process names. Matched against the *exact* process / file name
+# (without .exe), NOT as a substring of the full path - otherwise "jan" would
+# flag every process of a Windows user named "Jan" (path C:\Users\Jan\...).
 AI_PROCESSES = [
-    # AI Desktop Apps
-    "claude",           # Claude Desktop App (Anthropic)
-    "chatgpt",          # ChatGPT Desktop App (OpenAI)
-    "copilot",          # Microsoft Copilot App
+    # AI desktop apps
+    "claude",           # Claude desktop app (Anthropic)
+    "chatgpt",          # ChatGPT desktop app (OpenAI)
+    "copilot",          # Microsoft Copilot app
     "perplexity",       # Perplexity Desktop
     "cursor",           # Cursor AI IDE
     "windsurf",         # Windsurf AI IDE
     "supermaven",       # Supermaven autocomplete
-    # Local LLM Runtimes
+    # Local LLM runtimes
     "ollama",
     "ollama_llama_server",
     "lmstudio",
@@ -145,7 +149,7 @@ AI_WINDOW_KEYWORDS = [
     "ai chat", "ki chat", "chatbot", "llm",
 ]
 
-# Clipboard patterns that suggest AI-generated text (German + English)
+# Clipboard patterns that suggest AI-generated text (English + German)
 AI_CLIPBOARD_PATTERNS = [
     "as an ai", "as an ai language model", "i'm an ai",
     "ich bin eine ki", "als ki-assistent", "als sprachmodell",
@@ -160,13 +164,12 @@ AI_CLIPBOARD_PATTERNS = [
     "## ", "### ",  # Markdown headers (common in AI output)
 ]
 
-# Nach welcher Zeit dieselbe App / Domain / URL als *neue* Nutzung gilt und
-# erneut protokolliert wird. Innerhalb dieses Fensters zaehlt wiederholte
-# Aktivitaet als ein Ereignis; danach entsteht ein neuer Eintrag - so wird
-# auch mehrfache Nutzung derselben laufenden Sitzung sichtbar (mit zeitlicher
-# Luecke dazwischen). Kleiner = jede Nutzung einzeln (laengere Liste),
-# groesser = weniger Wiederholungs-Eintraege.
-REDETECT_AFTER = 300            # seconds (5 Minuten)
+# How long before the same app / domain / URL counts as a *new* use and is
+# logged again. Within this window repeated activity counts as one event;
+# after it a new entry is created - so repeated use of the same running
+# session (with a gap in between) stays visible. Smaller = every use listed
+# separately (longer list), larger = fewer repeat entries.
+REDETECT_AFTER = 300            # seconds (5 minutes)
 
 # Monitoring intervals
 NETWORK_CHECK_INTERVAL = 8       # seconds

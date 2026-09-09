@@ -1,16 +1,16 @@
 <#
-    AI-Monitor - Build-Skript
-    Erstellt aus dem Python-Quellcode zwei eigenstaendige EXE-Dateien mit
-    PyInstaller. Der komplette Python-Quellcode (inkl. config.py mit der
-    KI-Erkennungsliste) wird dabei in die EXE hineinkompiliert - danach liegt
-    kein bearbeitbarer .py-Quelltext mehr neben den Programmen.
+    AI-Monitor - Build script
+    Compiles the Python source into stand-alone EXE files with PyInstaller.
+    The complete Python source (incl. config.py with the AI detection list)
+    is compiled into the EXE - afterwards there is no editable .py source left
+    next to the programs.
 
-    Ausfuehren:  powershell -ExecutionPolicy Bypass -File build.ps1
+    Run:  powershell -ExecutionPolicy Bypass -File build.ps1
 
-    Ergebnis:
-      dist\AIMonitorService\AIMonitorService.exe   (Hintergrunddienst)
-      dist\AIMonitorDashboard.exe                  (Dashboard, ein File)
-      dist\AISessionAgent.exe                      (Screenshot-Helfer, laeuft in der Nutzersitzung)
+    Result:
+      dist\AIMonitorService\AIMonitorService.exe   (background service)
+      dist\AIMonitorDashboard.exe                  (dashboard, single file)
+      dist\AISessionAgent.exe                      (screenshot helper, runs in the user session)
 #>
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -18,11 +18,11 @@ Set-Location $root
 
 python -m PyInstaller --version | Out-Null
 if (-not $?) {
-    Write-Error "PyInstaller ist nicht installiert. Zuerst ausfuehren: python -m pip install -r requirements.txt"
+    Write-Error "PyInstaller is not installed. Run first: python -m pip install -r requirements.txt"
     exit 1
 }
 
-Write-Host "==> Baue AIMonitorService.exe (Hintergrunddienst) ..." -ForegroundColor Cyan
+Write-Host "==> Building AIMonitorService.exe (background service) ..." -ForegroundColor Cyan
 
 # PyInstaller's dependency scan only follows DLLs it sees directly imported
 # from Python (e.g. pywintypesNNN.dll, used by win32service/win32event).
@@ -38,7 +38,7 @@ Write-Host "==> Baue AIMonitorService.exe (Hintergrunddienst) ..." -ForegroundCo
 # Bundle the whole pywin32_system32 folder explicitly so nothing is missing.
 $pywin32Sys32 = python -c "import sysconfig, os; print(os.path.join(sysconfig.get_paths()['purelib'], 'pywin32_system32'))"
 if (-not (Test-Path $pywin32Sys32)) {
-    Write-Error "pywin32_system32 Ordner nicht gefunden unter: $pywin32Sys32"
+    Write-Error "pywin32_system32 folder not found at: $pywin32Sys32"
     exit 1
 }
 
@@ -57,7 +57,7 @@ python -m PyInstaller --noconfirm --clean `
     --add-binary "$pywin32Sys32\*.dll;pywin32_system32" `
     monitor_service.py
 
-Write-Host "==> Baue AIMonitorDashboard.exe (Dashboard) ..." -ForegroundColor Cyan
+Write-Host "==> Building AIMonitorDashboard.exe (dashboard) ..." -ForegroundColor Cyan
 python -m PyInstaller --noconfirm --clean `
     --name AIMonitorDashboard `
     --onefile `
@@ -66,9 +66,9 @@ python -m PyInstaller --noconfirm --clean `
     --hidden-import PIL._tkinter_finder `
     viewer.py
 
-Write-Host "==> Baue AISessionAgent.exe (Screenshot-Helfer) ..." -ForegroundColor Cyan
-# Laeuft absichtlich in der Nutzersitzung, nicht als Dienst - nur von dort
-# aus ist ein Screenshot des tatsaechlichen Desktops ueberhaupt moeglich.
+Write-Host "==> Building AISessionAgent.exe (screenshot helper) ..." -ForegroundColor Cyan
+# Runs deliberately in the user session, not as a service - only from there
+# is a screenshot of the actual desktop possible at all.
 python -m PyInstaller --noconfirm --clean `
     --name AISessionAgent `
     --onefile `
@@ -78,9 +78,9 @@ python -m PyInstaller --noconfirm --clean `
     session_agent.py
 
 Write-Host ""
-Write-Host "==> Fertig." -ForegroundColor Green
+Write-Host "==> Done." -ForegroundColor Green
 Write-Host "    dist\AIMonitorService\AIMonitorService.exe"
 Write-Host "    dist\AIMonitorDashboard.exe"
 Write-Host "    dist\AISessionAgent.exe"
 Write-Host ""
-Write-Host "Naechster Schritt: Install-AIMonitor.ps1 als Administrator ausfuehren."
+Write-Host "Next step: run Install-AIMonitor.ps1 as administrator."

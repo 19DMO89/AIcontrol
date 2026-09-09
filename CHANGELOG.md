@@ -1,141 +1,143 @@
-# Änderungsverlauf
+# Changelog
 
-Alle nennenswerten Änderungen an AI-Monitor. Neueste Version zuerst.
+All notable changes to AI-Monitor. Newest version first.
+
+## v3.0.0 — 2026-09-09
+
+### Changed
+- **The whole project is now in English.** Dashboard, login screen, event
+  text, the install / uninstall / diagnostics scripts, the `.bat` launchers
+  and this documentation. German is available as a switchable alternative:
+  an `EN | DE` toggle in the dashboard top bar and on the login screen.
+  English is the default; the choice is stored per installation in the
+  database (`settings` table) and is shared between the service and the
+  dashboard.
+- Event text (titles/details) is written by the service in the configured
+  language. A later language switch only affects **new** events — entries
+  already logged keep their wording, like any audit log.
+- `.bat` launchers renamed: `Install AI-Monitor.bat`,
+  `Uninstall AI-Monitor.bat`, `AI-Monitor Diagnostics.bat`.
+
+### Notes
+- No database schema change that affects existing rows — upgrading over an
+  existing installation is safe; the DB, screenshots and password are kept.
+- False positives logged by older versions are not rewritten or removed.
+  Select and delete old entries in the dashboard.
 
 ## v2.0.0 — 2026-09-07
 
-### Neu
-- **Versionsanzeige im Dashboard und im Anmeldefenster.** So ist auf einen
-  Blick erkennbar, welche Version auf einem Rechner läuft — hilfreich bei
-  Fehlerberichten und um alte, vor einem Update protokollierte Fehlalarme
-  von aktuellen zu unterscheiden.
-- `AIMonitorDashboard.exe --version` gibt die Version auf der Konsole aus.
-- Versionsnummer hat jetzt eine einzige Quelle (`VERSION` in `config.py`);
-  der Installer übernimmt sie in den „Apps & Features"-Eintrag.
-
-### Hinweis zu Fehlalarmen aus älteren Versionen
-Beim Update auf v1.5.0 wurden bereits protokollierte Fehlalarme (z. B.
-`bing.com`, oder ein Programm mit „Jan" im Pfad) **nicht rückwirkend
-entfernt** — sie stehen weiter in der Datenbank. Neue kommen keine mehr
-dazu; alte Einträge im Dashboard auswählen und löschen.
+### Added
+- **Version shown in the dashboard and on the login screen.** Makes it
+  obvious at a glance which version a machine runs — useful for bug reports
+  and to tell a pre-update false positive still in the DB from a live
+  detection.
+- `AIMonitorDashboard.exe --version` prints the version on the console.
+- The version number now has a single source (`VERSION` in `config.py`);
+  the installer picks it up for the "Apps & Features" entry.
 
 ## v1.5.0 — 2026-09-03
 
-### Behoben
-- **`bing.com` als KI-Treffer.** Das nackte `bing.com` stand in der
-  Erkennungsliste — Windows 11, Edge, Chrome, Widgets und die
-  Windows-Suche kontaktieren es aber permanent ohne jede KI-Nutzung.
-  Führte zu Fehlalarmen „Bing als KI" und „Chrome als KI" (Chrome bei
-  genau dieser bing.com-Verbindung erwischt). Ersetzt durch
-  `copilot.microsoft.com` und die Pfade `bing.com/chat`,
-  `bing.com/copilot`.
-- **Prozess-Erkennung per Teilstring gegen den ganzen Pfad.** Ein
-  Listeneintrag wie `jan` (lokaler LLM-Runner) hätte bei einem
-  Windows-Benutzer namens „Jan" (Pfad `C:\Users\Jan\…`) *jeden* Prozess
-  als KI-Programm gemeldet. Jetzt exakter Abgleich gegen Prozess-/
-  Dateinamen.
-- **Domain-Abgleich auf Label-Grenze.** `x.ai` passt jetzt auf
-  `api.x.ai`, aber nicht mehr auf `climax.airlines.com` o. Ä.
+### Fixed
+- **`bing.com` matched as AI.** Bare `bing.com` was in the detection list —
+  but Windows 11, Edge, Chrome, the widgets and Windows Search contact it
+  constantly with zero AI use. Caused "Bing detected as AI" and "Chrome
+  detected as AI" false positives (Chrome caught on that very bing.com
+  connection). Replaced with `copilot.microsoft.com` and the paths
+  `bing.com/chat`, `bing.com/copilot`.
+- **Process detection matched a substring of the full path.** A list entry
+  like `jan` (a local LLM runner) would have flagged *every* process of a
+  Windows user named "Jan" (path `C:\Users\Jan\…`) as an AI program. Now an
+  exact match against the process / file name.
+- **Domain matching on a label boundary.** `x.ai` now matches `api.x.ai`
+  but no longer `climax.airlines.com` and the like.
 
-### Geändert
-- **Wiederholte Nutzung wird protokolliert.** Bisher wurde jede App/
-  Domain/URL genau einmal auf Lebenszeit erfasst — häufige Nutzung
-  derselben laufenden Sitzung war unsichtbar. Jetzt: ein Eintrag pro
-  Zeitfenster (`REDETECT_AFTER`, Standard 5 Min), danach wieder ein
-  neuer. Browser-Treffer werden nach dem tatsächlichen Besuchszeitpunkt
-  eingeordnet.
+### Changed
+- **Repeated use is now logged.** Previously every app/domain/URL was
+  recorded exactly once for its lifetime — frequent use of the same running
+  session was invisible. Now: one entry per time window (`REDETECT_AFTER`,
+  default 5 min), then another in the next. Browser hits are placed by the
+  actual visit time.
 
 ## v1.4.0 — 2026-09-03
 
-### Behoben
-- **Login-Dialog gab keine Rückmeldung bei falscher Eingabe.** Die
-  Fehlermeldung („Falscher Benutzername oder Passwort", „Passwort zu kurz"
-  …) wurde zwar gesetzt, lag aber außerhalb des sichtbaren Bereichs des
-  fest dimensionierten, nicht vergrößerbaren Anmeldefensters. Die
-  Statuszeile sitzt jetzt fest in der Anmeldekarte, das Fenster ist höher
-  (Anmeldung 380 px, Ersteinrichtung 500 px).
+### Fixed
+- **The login dialog gave no feedback on a wrong entry.** The error message
+  ("Wrong username or password", "Password too short" …) was set but sat
+  outside the visible area of the fixed-size, non-resizable login window.
+  The status line now sits in the login card, and the window is taller.
 
-### Neu
-- **Deinstaller wird mitinstalliert und in Windows registriert.** Die
-  Installation legt `Uninstall-AIMonitor.ps1` unter
-  `%ProgramData%\AIMonitor\bin` ab (für Standardbenutzer nur les-/
-  ausführbar) und trägt einen Eintrag **„AI-Monitor"** unter
-  Einstellungen → *Apps* bzw. *Programme und Features* ein. Bisher ließ
-  die `AIMonitor-Setup.exe` auf dem Zielrechner keinerlei Möglichkeit zum
-  Deinstallieren zurück.
-- **Desktop-Ordner statt loser Verknüpfung.** Auf dem Desktop aller
-  Benutzer entsteht der Ordner `AI-Monitor` mit der Dashboard- und einer
-  Deinstallations-Verknüpfung (Letztere fragt per UAC nach
-  Administratorrechten).
+### Added
+- **The uninstaller is installed and registered in Windows.** The
+  installation places `Uninstall-AIMonitor.ps1` under
+  `%ProgramData%\AIMonitor\bin` (read/execute only for standard users) and
+  adds an **"AI-Monitor"** entry under Settings → *Apps* / *Programs and
+  Features*. Previously `AIMonitor-Setup.exe` left no way to uninstall on
+  the target machine.
+- **Desktop folder instead of a loose shortcut.** An `AI-Monitor` folder is
+  created on the common desktop with the dashboard and an uninstall shortcut
+  (the latter asks for administrator rights via UAC).
 
-### Verbessert
-- **Upgrade über eine bestehende Installation.** Ein noch geöffnetes
-  Dashboard wird vor dem Kopieren automatisch beendet (sonst schlug das
-  Überschreiben von `AIMonitorDashboard.exe` fehl). Bereits gesetzte
-  Dashboard-Zugangsdaten bleiben erhalten und werden bei der
-  Neuinstallation nicht erneut abgefragt (`--has-credentials`-Prüfung).
-- Der Deinstaller entfernt zusätzlich den „Apps & Features"-Eintrag und
-  den Desktop-Ordner und kopiert sich beim Start aus dem
-  Installationsordner nach `%TEMP%`, um sich beim Aufräumen nicht selbst
-  zu blockieren.
-- `package.ps1` bündelt `Uninstall-AIMonitor.ps1` und
-  `AI-Monitor deinstallieren.bat` mit in die `AIMonitor-Setup.exe`.
+### Improved
+- **Upgrading over an existing installation.** A still-open dashboard is
+  closed before copying (otherwise overwriting `AIMonitorDashboard.exe`
+  failed). Existing dashboard credentials are kept and not asked for again
+  on a re-install (`--has-credentials` check).
+- The uninstaller also removes the "Apps & Features" entry and the desktop
+  folder, and copies itself from the install folder to `%TEMP%` on start so
+  it does not block its own cleanup.
+- `package.ps1` bundles `Uninstall-AIMonitor.ps1` and the uninstall `.bat`
+  into `AIMonitor-Setup.exe`.
 
 ## v1.3.1 — 2026-08-19
 
-- **Installation:** Dienst-Registrierung schlug sporadisch mit „Zugriff
-  verweigert" (Exit-Code 5) fehl, weil der Virenschutz die frisch
-  kopierte `AIMonitorService.exe` gerade scannte. Wird jetzt automatisch
-  mehrfach wiederholt.
-- **Deinstallation:** Die eigene Manipulationsschutz-Regel (Deny für
-  Standardbenutzer auf dem Screenshots-Ordner) blockierte teils das
-  eigene Aufräumen, da ein Admin-Konto meist ebenfalls Mitglied dieser
-  Gruppe ist. Zurückgebliebene Datenbank-/Screenshot-Dateien wurden
-  dadurch nicht entfernt.
+- **Installation:** service registration sporadically failed with "access
+  denied" (exit code 5) because antivirus was scanning the freshly copied
+  `AIMonitorService.exe`. Now retried automatically.
+- **Uninstall:** the own tamper-protection rule (deny for standard users on
+  the screenshots folder) sometimes blocked its own cleanup, since an admin
+  account is usually also a member of that group. Left-over database /
+  screenshot files were not removed as a result.
 
 ## v1.3.0 — 2026-08-19
 
-- Fertig gebaute `AIMonitor-Setup.exe` zum Download — kein Python, kein
-  manueller Build mehr nötig. `build.ps1` + `package.ps1` erzeugen die
-  Datei neu aus dem Quellcode.
+- Pre-built `AIMonitor-Setup.exe` for download — no Python, no manual build
+  needed anymore. `build.ps1` + `package.ps1` regenerate the file from
+  source.
 
 ## v1.2.0 — 2026-07-16
 
-### Wichtigster Fix
-- Der Windows-Dienst startete bisher **nie tatsächlich** (stiller
-  30-Sekunden-Timeout, Event 7009). Drei ineinander verschachtelte
-  PyInstaller/pywin32-Bugs behoben und end-to-end an einem echten
-  installierten Dienst verifiziert: fehlende `pythoncom`-DLL im Build;
-  falscher `--console`-Modus (Dienste laufen in Session 0 ohne Konsole);
-  eigentliche Ursache: `HandleCommandLine` übernimmt in dieser
-  pywin32-Version nicht den SCM-Handshake — jetzt wird
-  `StartServiceCtrlDispatcher` direkt aufgerufen.
+### Most important fix
+- The Windows service had never **actually started** (silent 30-second
+  timeout, Event 7009). Three nested PyInstaller/pywin32 bugs fixed and
+  verified end-to-end on a real installed service: missing `pythoncom` DLL
+  in the build; wrong `--console` mode (services run in Session 0 without a
+  console); the actual cause: `HandleCommandLine` does not drive the SCM
+  handshake in this pywin32 version — `StartServiceCtrlDispatcher` is now
+  called directly.
 
-### Neu
-- Screenshots funktionieren jetzt über einen neuen Sitzungs-Agenten
-  (läuft in der Nutzersitzung, da ein Dienst in Session 0 keinen Zugriff
-  auf den Desktop hat).
-- Screenshot-Ordner ist für Standardnutzer nur noch beschreibbar, nicht
-  löschbar — Beweise können nicht entfernt werden.
-- Browser-Erkennung funktioniert jetzt auch über den echten Dienst
-  (mehrere Chrome/Edge/Brave-Profile, echte Benutzerprofile statt
-  SYSTEM-Umgebungsvariablen).
-- GitHub-Copilot-Erkennung repariert, plus JetBrains AI, Amazon Q, Cody,
-  Supermaven ergänzt.
-- Eigenes App-Icon; alte, durch den Dienst-Ansatz ersetzte .bat-Skripte
-  entfernt.
+### Added
+- Screenshots now work via a new session agent (runs in the user session,
+  since a service in Session 0 has no access to the desktop).
+- The screenshot folder is now write-only for standard users, not
+  deletable — evidence cannot be removed.
+- Browser detection now works via the real service too (multiple
+  Chrome/Edge/Brave profiles, real user profiles instead of SYSTEM
+  environment variables).
+- GitHub Copilot detection fixed, plus JetBrains AI, Amazon Q, Cody,
+  Supermaven added.
+- Own app icon; old `.bat` scripts replaced by the service approach removed.
 
 ## v1.1.0 — 2026-07-16
 
-- Windows-Service-Installation (`monitor_service.py`) inkl.
-  Installer-/Deinstaller-Skripte.
-- Diagnose-Tool `Diagnose-AIMonitor.ps1` zur Fehlersuche bei
-  Dienstproblemen.
-- Fester Datenordner `%PROGRAMDATA%\AIMonitor\data`, damit Dienst und
-  Dashboard dieselben Daten verwenden.
-- Build-Skript `build.ps1` für PyInstaller-Builds.
-- Weitere Erkennungs-Keywords für KI-Fenster/Prozesse.
+- Windows service installation (`monitor_service.py`) incl. install /
+  uninstall scripts.
+- Diagnostics tool `Diagnose-AIMonitor.ps1` for troubleshooting service
+  problems.
+- Fixed data folder `%PROGRAMDATA%\AIMonitor\data` so the service and
+  dashboard use the same data.
+- Build script `build.ps1` for PyInstaller builds.
+- More detection keywords for AI windows/processes.
 
 ## v1.0.0
 
-- Erste Veröffentlichung: AI-Monitor für die Berufsweltmeisterschaften.
+- First release: AI-Monitor for WorldSkills.

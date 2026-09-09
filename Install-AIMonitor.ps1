@@ -1,50 +1,48 @@
 <#
     AI-Monitor - Installation
     =========================
-    Installiert den AI-Monitor als Windows-Dienst (startet automatisch mit
-    Windows, unabhaengig vom angemeldeten Benutzer), registriert den
-    Sitzungs-Agenten (fuer Screenshots) als Anmelde-Aufgabe und legt ein
-    Desktop-Ordner "AI-Monitor" (Dashboard- + Deinstallations-Verknuepfung)
-    fuer alle Benutzer an.
+    Installs AI-Monitor as a Windows service (starts automatically with
+    Windows, independent of the logged-in user), registers the session agent
+    (for screenshots) as a logon task, and creates a desktop folder
+    "AI-Monitor" (dashboard + uninstall shortcut) for all users.
 
-    Manipulationsschutz:
-      - Der Dienst laeuft unter dem LocalSystem-Konto. Windows selbst
-        verweigert Standardbenutzern (ohne Administratorrechte) das Stoppen
-        oder Entfernen von Diensten - das ist eingebautes SCM-Verhalten,
-        kein Trick dieses Skripts.
-      - Bei einem Absturz/Kill startet der Dienst automatisch neu (Recovery).
-      - Programmdateien liegen unter C:\ProgramData\AIMonitor\bin mit NTFS-
-        Rechten, die Standardbenutzern nur Lesen+Ausfuehren erlauben (kein
-        Bearbeiten/Ueberschreiben). Die Datenbank unter ...\data ist fuer
-        Standardbenutzer schreibbar (fuer die Dashboard-App), aber nicht
-        loeschbar.
-      - Der Sitzungs-Agent (Screenshots) laeuft zwangslaeufig mit den
-        Rechten des angemeldeten Benutzers - nur so kann er ueberhaupt auf
-        dessen Desktop zugreifen. Ein Standardbenutzer kann den laufenden
-        Prozess im Taskmanager beenden, aber die Aufgabendefinition selbst
-        nicht loeschen (liegt unter C:\Windows\System32\Tasks, admin-
-        geschuetzt) - bei der naechsten Anmeldung startet er ohnehin wieder.
+    Tamper protection:
+      - The service runs under the LocalSystem account. Windows itself denies
+        standard users (without administrator rights) the ability to stop or
+        remove services - that is built-in SCM behaviour, not a trick of this
+        script.
+      - On a crash/kill the service restarts automatically (recovery).
+      - Program files live under C:\ProgramData\AIMonitor\bin with NTFS
+        permissions that only allow standard users to read+execute (no
+        editing/overwriting). The database under ...\data is writable for
+        standard users (for the dashboard app) but not deletable.
+      - The session agent (screenshots) necessarily runs with the rights of
+        the logged-in user - that is the only way it can access their desktop
+        at all. A standard user can end the running process in Task Manager,
+        but cannot delete the task definition itself (it lives under
+        C:\Windows\System32\Tasks, admin-protected) - it starts again on the
+        next logon anyway.
 
-    Voraussetzung: build.ps1 wurde bereits ausgefuehrt (dist\ existiert).
-    Ausfuehren:    Rechtsklick -> "Mit PowerShell ausfuehren" (fordert
-                   automatisch Administratorrechte an), oder:
-                   powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
+    Requirement: build.ps1 has already been run (dist\ exists).
+    Run:         Right-click -> "Run with PowerShell" (requests administrator
+                 rights automatically), or:
+                 powershell -ExecutionPolicy Bypass -File Install-AIMonitor.ps1
 #>
 
 $ErrorActionPreference = "Stop"
 
-# ── Auf Administratorrechte pruefen, sonst neu starten ────────────────────────
+# ── Check for administrator rights, restart elevated otherwise ───────────────
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "Starte mit Administratorrechten neu (UAC-Abfrage bestaetigen) ..." -ForegroundColor Yellow
+    Write-Host "Restarting with administrator rights (confirm the UAC prompt) ..." -ForegroundColor Yellow
     try {
         Start-Process powershell -Verb RunAs -Wait -ArgumentList "-ExecutionPolicy", "Bypass", "-File", "`"$($MyInvocation.MyCommand.Path)`"" -ErrorAction Stop
     } catch {
         Write-Host ""
-        Write-Host "Administratorrechte wurden nicht erteilt (UAC abgebrochen?)." -ForegroundColor Red
-        Write-Host "Fehler: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Administrator rights were not granted (UAC cancelled?)." -ForegroundColor Red
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ""
-        Read-Host "Fenster mit Enter schliessen"
+        Read-Host "Press Enter to close this window"
     }
     exit
 }
@@ -64,14 +62,14 @@ $dashExe     = Join-Path $binDir "AIMonitorDashboard.exe"
 $agentExe    = Join-Path $binDir "AISessionAgent.exe"
 $agentTask   = "AIMonitorSessionAgent"
 $uninstSrc   = Join-Path $root "Uninstall-AIMonitor.ps1"
-$uninstBatSrc = Join-Path $root "AI-Monitor deinstallieren.bat"
+$uninstBatSrc = Join-Path $root "Uninstall AI-Monitor.bat"
 $uninstDst   = Join-Path $binDir "Uninstall-AIMonitor.ps1"
 $arpKey      = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMonitor"
 
-# Versionsnummer: aus der vom Paketierer beigelegten VERSION.txt, sonst per
-# Regex aus config.py (manuelle Installation aus dem Quellordner), sonst
-# Fallback. Einzige Quelle ist config.py -> VERSION.
-$version = "2.0.0"
+# Version number: from the VERSION.txt the packager bundles, otherwise via a
+# regex on config.py (manual install from the source folder), otherwise a
+# fallback. The single source is config.py -> VERSION.
+$version = "3.0.0"
 $verFile = Join-Path $root "VERSION.txt"
 $cfgFile = Join-Path $root "config.py"
 if (Test-Path $verFile) {
@@ -82,16 +80,16 @@ if (Test-Path $verFile) {
 }
 
 if (-not (Test-Path $svcSrc) -or -not (Test-Path $dashSrc) -or -not (Test-Path $agentSrc)) {
-    Write-Error "dist\ nicht gefunden oder unvollstaendig. Bitte zuerst build.ps1 ausfuehren."
+    Write-Error "dist\ not found or incomplete. Please run build.ps1 first."
     exit 1
 }
 
-Write-Host "==> Installiere nach $installRoot ..." -ForegroundColor Cyan
+Write-Host "==> Installing to $installRoot ..." -ForegroundColor Cyan
 
-# ── Vorherige Installation sauber stoppen (Upgrade-Fall), Daten bleiben ──────
+# ── Cleanly stop a previous installation (upgrade case); data is kept ────────
 $existing = Get-Service -Name AIMonitor -ErrorAction SilentlyContinue
 if ($existing) {
-    Write-Host "Bestehender Dienst gefunden - wird angehalten und neu registriert ..."
+    Write-Host "Existing service found - stopping and re-registering ..."
     if ($existing.Status -ne "Stopped") {
         Stop-Service -Name AIMonitor -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
@@ -106,11 +104,11 @@ if ($existingTask) {
     Unregister-ScheduledTask -TaskName $agentTask -Confirm:$false -ErrorAction SilentlyContinue
 }
 
-# Ein noch offenes Dashboard haelt AIMonitorDashboard.exe gesperrt - dann
-# wuerde das Ueberschreiben beim Upgrade fehlschlagen. Vorher beenden.
+# A dashboard that is still open holds AIMonitorDashboard.exe locked - then
+# overwriting it during an upgrade would fail. Close it first.
 Get-Process -Name AIMonitorDashboard -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
-# ── Verzeichnisse anlegen und Dateien kopieren ───────────────────────────────
+# ── Create directories and copy files ───────────────────────────────────────
 New-Item -ItemType Directory -Force -Path $svcDir  | Out-Null
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 
@@ -118,136 +116,133 @@ Copy-Item "$svcSrc\*" $svcDir -Recurse -Force
 Copy-Item $dashSrc $dashExe -Force
 Copy-Item $agentSrc $agentExe -Force
 
-# ── NTFS-Rechte setzen: Programmdateien (bin) sind fuer Standardbenutzer nur
-#    lesbar+ausfuehrbar (nicht bearbeitbar). Der Datenordner braucht dagegen
-#    normale Schreib-/Loeschrechte fuer Standardbenutzer - SQLite legt im
-#    WAL-Modus Begleitdateien (-wal/-shm) an und muss sie verwalten koennen;
-#    ein Loeschverbot dort bricht die Datenbank (getestet: "readonly database").
-#    Der eigentliche Manipulationsschutz kommt vom Windows-Dienst selbst
-#    (siehe oben), nicht von einer Sperre der Datenbankdatei.
-#    SIDs statt Namen verwendet, damit das Skript auch auf nicht-deutschen
-#    Windows-Installationen laeuft.
-Write-Host "==> Setze Dateiberechtigungen ..." -ForegroundColor Cyan
+# ── Set NTFS permissions: program files (bin) are read+execute only for
+#    standard users (not editable). The data folder, in contrast, needs
+#    normal write/delete rights for standard users - in WAL mode SQLite
+#    creates companion files (-wal/-shm) and must be able to manage them; a
+#    delete ban there breaks the database (tested: "readonly database").
+#    The actual tamper protection comes from the Windows service itself
+#    (see above), not from locking the database file.
+#    SIDs used instead of names so the script also runs on non-English
+#    Windows installations.
+Write-Host "==> Setting file permissions ..." -ForegroundColor Cyan
 $SID_SYSTEM = "*S-1-5-18"
 $SID_ADMINS = "*S-1-5-32-544"
 $SID_USERS  = "*S-1-5-32-545"
 
-# /reset entfernt zuerst alle expliziten ACEs (z.B. von fehlgeschlagenen
-# frueheren Installationsversuchen) und stellt reine Vererbung wieder her,
-# damit sich bei erneuter Ausfuehrung keine widerspruechlichen Regeln anhaeufen.
-# /C laesst icacls ueber einzelne fehlerhafte Dateien hinweg weiterlaufen -
-# aber unter $ErrorActionPreference = "Stop" wuerde selbst eine einzelne
-# Fehlerzeile auf stderr (2>$null hin oder her) das ganze Skript trotzdem
-# abbrechen, siehe reg-delete-Kommentar weiter unten. try/catch macht /C's
-# "bestmoeglich weitermachen" auch tatsaechlich wirksam.
+# /reset first removes all explicit ACEs (e.g. from failed earlier install
+# attempts) and restores pure inheritance, so repeated runs don't accumulate
+# contradictory rules. /C lets icacls carry on past individual bad files -
+# but under $ErrorActionPreference = "Stop" even a single error line on
+# stderr (2>$null notwithstanding) would still abort the whole script, see
+# the reg-delete comment further down. try/catch makes /C's "carry on as best
+# you can" actually effective.
 try { icacls $installRoot /reset /T /C *>$null } catch {}
 icacls $installRoot /inheritance:r                                             | Out-Null
 icacls $installRoot /grant:r "${SID_SYSTEM}:(OI)(CI)F" "${SID_ADMINS}:(OI)(CI)F" | Out-Null
 icacls $binDir       /grant:r "${SID_USERS}:(OI)(CI)RX"                         | Out-Null
 icacls $dataDir      /grant:r "${SID_USERS}:(OI)(CI)M"                          | Out-Null
 
-# Screenshots duerfen von Standardbenutzern angelegt (der Sitzungs-Agent laeuft
-# ja mit ihren eigenen Rechten - anders geht ein Screenshot des eigenen
-# Desktops technisch nicht), aber nicht geloescht werden koennen. DE (Delete)
-# und DC (Delete Child) werden hier gezielt verweigert - eine explizite Deny-
-# ACE gewinnt in NTFS immer gegen die geerbte Allow-ACE von oben (Modify
-# schliesst Loeschen normalerweise mit ein). Bewusst nur auf diesem
-# Unterordner, nicht auf $dataDir insgesamt - dort braucht SQLite im WAL-Modus
-# Loeschrechte fuer seine eigenen Begleitdateien (siehe Kommentar oben).
+# Screenshots may be created by standard users (the session agent runs with
+# their own rights - a screenshot of one's own desktop is not technically
+# possible otherwise) but must not be deletable. DE (Delete) and DC (Delete
+# Child) are denied here specifically - an explicit Deny ACE always wins in
+# NTFS against the inherited Allow ACE from above (Modify normally includes
+# Delete). Deliberately only on this subfolder, not on $dataDir as a whole -
+# there SQLite needs delete rights for its own WAL companion files (see the
+# comment above).
 $screenshotsDir = Join-Path $dataDir "screenshots"
 New-Item -ItemType Directory -Force -Path $screenshotsDir | Out-Null
 icacls $screenshotsDir /grant:r "${SID_USERS}:(OI)(CI)M"       | Out-Null
 icacls $screenshotsDir /deny    "${SID_USERS}:(OI)(CI)(DE,DC)" | Out-Null
 
-# ── Windows-Dienst registrieren ──────────────────────────────────────────────
-# Ueber die eingebaute pywin32-"install"-Befehlszeile registrieren statt mit
-# einem manuell zusammengesetzten sc.exe-Aufruf - pywin32 kennt die fuer seinen
-# eigenen SCM-Handshake noetigen Details (u.a. Anzeigename/Beschreibung aus
-# der Service-Klasse) und war zuverlaessiger als der handgebaute Weg, der zu
-# einem 60s-Timeout beim Start fuehrte (Event 7009).
-Write-Host "==> Registriere Dienst 'AIMonitor' ..." -ForegroundColor Cyan
-# Retry, weil ein Echtzeit-Virenschutz die frisch nach ProgramData kopierte
-# AIMonitorService.exe hier gerade erst scannt - ein unmittelbar folgender
-# Ausfuehrungsversuch schlaegt dabei sporadisch mit Access Denied (Exit-Code
-# 5) fehl, obwohl an der Datei/den Rechten nichts falsch ist. Nach ein paar
-# Sekunden ist der Scan durch und derselbe Aufruf klappt anstandslos.
+# ── Register the Windows service ────────────────────────────────────────────
+# Register via pywin32's built-in "install" command line rather than a
+# hand-assembled sc.exe call - pywin32 knows the details its own SCM
+# handshake needs (display name/description from the service class, etc.) and
+# was more reliable than the hand-built path, which led to a 60s timeout on
+# start (Event 7009).
+Write-Host "==> Registering service 'AIMonitor' ..." -ForegroundColor Cyan
+# Retry, because real-time antivirus is scanning the AIMonitorService.exe
+# just copied to ProgramData - an immediately following execution attempt
+# sporadically fails with Access Denied (exit code 5), even though nothing is
+# wrong with the file/permissions. After a few seconds the scan is done and
+# the same call works fine.
 $maxAttempts = 5
 for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
     $out = & $svcExe --startup auto install 2>&1
     if ($LASTEXITCODE -eq 0) { break }
     if ($attempt -eq $maxAttempts) {
-        throw "Dienst-Installation fehlgeschlagen (Exit-Code $LASTEXITCODE): $out"
+        throw "Service installation failed (exit code $LASTEXITCODE): $out"
     }
-    Write-Host "    ... Versuch $attempt fehlgeschlagen (Exit-Code $LASTEXITCODE), erneuter Versuch in 3s ..." -ForegroundColor DarkYellow
+    Write-Host "    ... attempt $attempt failed (exit code $LASTEXITCODE), retrying in 3s ..." -ForegroundColor DarkYellow
     Start-Sleep -Seconds 3
 }
 
-# Automatischer Neustart bei Absturz/Beendigung (z.B. per Taskmanager) -
-# Standardbenutzer koennen den Dienst ohnehin nicht stoppen (SCM-Rechte),
-# das hier faengt zusaetzlich Abstuerze/erzwungenes Prozess-Kill ab.
+# Automatic restart on crash/termination (e.g. via Task Manager) - standard
+# users cannot stop the service anyway (SCM rights), this additionally
+# catches crashes/forced process kills.
 & sc.exe failure AIMonitor reset= 86400 actions= restart/5000/restart/5000/restart/60000 | Out-Null
 & sc.exe failureflag AIMonitor 1 | Out-Null
 
-# Die SCM-Datenbank braucht nach der Registrierung einen kurzen Moment, bevor
-# der neue Dienst per Name abfragbar ist - ohne diese Pause schlaegt der
-# unmittelbar folgende Start-Service-Aufruf sporadisch mit "Es kann kein
-# Dienst mit diesem Namen gefunden werden" fehl, obwohl die Registrierung
-# tatsaechlich erfolgreich war.
+# The SCM database needs a brief moment after registration before the new
+# service is queryable by name - without this pause the immediately
+# following Start-Service call sporadically fails with "The specified
+# service does not exist", even though registration actually succeeded.
 Start-Sleep -Milliseconds 1000
 
 try {
     Start-Service -Name AIMonitor -ErrorAction Stop
-    Write-Host "[OK] Dienst laeuft." -ForegroundColor Green
+    Write-Host "[OK] Service is running." -ForegroundColor Green
 } catch {
     Write-Host ""
-    Write-Host "Dienststart fehlgeschlagen. Letzte Ereignisse aus dem System-Log:" -ForegroundColor Red
+    Write-Host "Service start failed. Most recent events from the System log:" -ForegroundColor Red
     Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 20 -ErrorAction SilentlyContinue |
         Where-Object { $_.Message -match "AIMonitor" } | Select-Object -First 3 |
         ForEach-Object { Write-Host "  [$($_.TimeCreated)] $($_.Message)" -ForegroundColor DarkYellow }
     throw
 }
 
-# ── Sitzungs-Agent als Anmelde-Aufgabe registrieren ─────────────────────────
-# Laeuft mit den Rechten des jeweils angemeldeten Benutzers (RunLevel
-# Limited, kein Passwort hinterlegt/benoetigt - "AtLogOn" ist ein
-# interaktiver Trigger). GroupId statt einem festen Benutzernamen, damit
-# das auf jedem Konto funktioniert, das sich anmeldet, nicht nur auf dem
-# zum Installationszeitpunkt aktiven.
-Write-Host "==> Registriere Sitzungs-Agent (Screenshots) ..." -ForegroundColor Cyan
+# ── Register the session agent as a logon task ─────────────────────────────
+# Runs with the rights of whichever user is logged in (RunLevel Limited, no
+# password stored/needed - "AtLogOn" is an interactive trigger). GroupId
+# instead of a fixed user name, so it works for every account that logs in,
+# not just the one active at install time.
+Write-Host "==> Registering session agent (screenshots) ..." -ForegroundColor Cyan
 $agentAction    = New-ScheduledTaskAction -Execute $agentExe
 $agentTrigger   = New-ScheduledTaskTrigger -AtLogOn
-# SID statt "BUILTIN\Users" - der Name allein loeste auf diesem System
-# "Zuordnungen von Kontennamen und Sicherheitskennungen wurden nicht
-# durchgefuehrt" aus (Lokalisierungsproblem), die SID ist sprachunabhaengig.
+# SID instead of "BUILTIN\Users" - the name alone triggered "No mapping
+# between account names and security IDs was done" on this system (a
+# localization issue); the SID is language-independent.
 $agentPrincipal = New-ScheduledTaskPrincipal -GroupId "S-1-5-32-545" -RunLevel Limited
 $agentSettings  = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
                     -ExecutionTimeLimit ([TimeSpan]::Zero) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Register-ScheduledTask -TaskName $agentTask -Action $agentAction -Trigger $agentTrigger `
     -Principal $agentPrincipal -Settings $agentSettings -Force | Out-Null
 
-# Sofort auch fuer die aktuelle Sitzung starten, statt auf die naechste
-# Anmeldung zu warten.
+# Start it for the current session immediately too, rather than waiting for
+# the next logon.
 Start-ScheduledTask -TaskName $agentTask -ErrorAction SilentlyContinue
 
-# Desktop-Ordner mit Dashboard- und Deinstallations-Verknuepfung wird weiter
-# unten angelegt (nach dem Kopieren des Deinstaller-Skripts).
+# The desktop folder with the dashboard and uninstall shortcuts is created
+# further down (after the uninstaller script has been copied).
 
-# ── Deinstaller mitinstallieren und in "Apps & Features" registrieren ────────
-# Die AIMonitor-Setup.exe liefert nur den Installer aus - ohne diesen Schritt
-# bliebe auf dem Zielrechner kein Weg, den AI-Monitor wieder zu entfernen,
-# und in den Windows-Einstellungen (Apps / "Programme und Features") taucht
-# nichts auf. Das Deinstaller-Skript liegt in $binDir und erbt dessen NTFS-
-# Rechte (Standardbenutzer nur Lesen/Ausfuehren), laesst sich also von
-# Teilnehmern nicht manipulieren; das Deinstallieren selbst verlangt ohnehin
-# eine UAC-Bestaetigung (siehe Uninstall-AIMonitor.ps1).
-Write-Host "==> Registriere Deinstaller ..." -ForegroundColor Cyan
+# ── Install the uninstaller and register it in "Apps & Features" ────────────
+# AIMonitor-Setup.exe only ships the installer - without this step there
+# would be no way to remove AI-Monitor on the target machine, and nothing
+# would appear in Windows Settings (Apps / "Programs and Features"). The
+# uninstaller script lives in $binDir and inherits its NTFS permissions
+# (standard users read/execute only), so participants cannot tamper with it;
+# uninstalling itself requires a UAC confirmation anyway (see
+# Uninstall-AIMonitor.ps1).
+Write-Host "==> Registering uninstaller ..." -ForegroundColor Cyan
 if (Test-Path $uninstSrc) {
     Copy-Item $uninstSrc $uninstDst -Force
 } else {
-    Write-Warning "Uninstall-AIMonitor.ps1 nicht neben dem Installer gefunden - Deinstaller-Skript fehlt."
+    Write-Warning "Uninstall-AIMonitor.ps1 not found next to the installer - uninstaller script is missing."
 }
 if (Test-Path $uninstBatSrc) {
-    Copy-Item $uninstBatSrc (Join-Path $binDir "AI-Monitor deinstallieren.bat") -Force
+    Copy-Item $uninstBatSrc (Join-Path $binDir "Uninstall AI-Monitor.bat") -Force
 }
 
 $uninstCmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$uninstDst`""
@@ -267,10 +262,10 @@ try {
     Set-ItemProperty -Path $arpKey -Name "EstimatedSize" -Value $sizeKb -Type DWord
 } catch {}
 
-# ── Desktop-Ordner "AI-Monitor" fuer alle Benutzer ─────────────────────────
-# Statt einer losen Verknuepfung ein Ordner mit Dashboard- und Deinstall-
-# Verknuepfung darin, damit beides zusammen an einer Stelle liegt.
-Write-Host "==> Erstelle Desktop-Ordner 'AI-Monitor' ..." -ForegroundColor Cyan
+# ── Desktop folder "AI-Monitor" for all users ──────────────────────────────
+# Instead of a loose shortcut, a folder with the dashboard and uninstall
+# shortcuts inside it, so both are in one place.
+Write-Host "==> Creating desktop folder 'AI-Monitor' ..." -ForegroundColor Cyan
 $desktop   = [Environment]::GetFolderPath("CommonDesktopDirectory")
 $deskFolder = Join-Path $desktop "AI-Monitor"
 New-Item -ItemType Directory -Force -Path $deskFolder | Out-Null
@@ -280,62 +275,60 @@ $scDash = $shell.CreateShortcut((Join-Path $deskFolder "AI-Monitor Dashboard.lnk
 $scDash.TargetPath       = $dashExe
 $scDash.WorkingDirectory = $binDir
 $scDash.IconLocation     = "$dashExe,0"
-$scDash.Description       = "AI-Monitor Dashboard - Berufsweltmeisterschaften"
+$scDash.Description       = "AI-Monitor Dashboard - WorldSkills"
 $scDash.Save()
 
-$scUninst = $shell.CreateShortcut((Join-Path $deskFolder "AI-Monitor deinstallieren.lnk"))
+$scUninst = $shell.CreateShortcut((Join-Path $deskFolder "Uninstall AI-Monitor.lnk"))
 $scUninst.TargetPath       = "powershell.exe"
 $scUninst.Arguments        = "-NoProfile -ExecutionPolicy Bypass -File `"$uninstDst`""
 $scUninst.WorkingDirectory = $binDir
 $scUninst.IconLocation     = "shell32.dll,31"
-$scUninst.Description       = "AI-Monitor vom Rechner entfernen (fragt nach Administratorrechten)"
+$scUninst.Description       = "Remove AI-Monitor from this machine (asks for administrator rights)"
 $scUninst.Save()
 
-# ── Alten Autostart-Registry-Eintrag (aus fruehreren .bat-Versionen) entfernen
-# Erwartet meist ein "Wert nicht gefunden" (der Eintrag existiert nur bei
-# Upgrades von der alten .bat-basierten Autostart-Version) - das ist kein
-# Fehler. reg.exe's eigene Fehlerausgabe wuerde unter $ErrorActionPreference
-# = "Stop" trotz 2>$null als abbrechender Fehler behandelt, daher try/catch
-# statt Stream-Umleitung.
+# ── Remove an old autostart registry entry (from earlier .bat versions) ─────
+# Usually expects a "value not found" (the entry only exists when upgrading
+# from the old .bat-based autostart version) - that is not an error. reg.exe's
+# own error output would be treated as an aborting error under
+# $ErrorActionPreference = "Stop" despite 2>$null, hence try/catch instead of
+# stream redirection.
 try { reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMonitor" /f *>$null } catch {}
 
 Write-Host ""
 Write-Host "============================================================" -ForegroundColor Green
-Write-Host " Installation abgeschlossen." -ForegroundColor Green
+Write-Host " Installation complete." -ForegroundColor Green
 Write-Host "============================================================"
 Write-Host ""
 
-# ── Admin-Zugangsdaten festlegen, falls noch keine existieren ───────────────
-# Bei einem Upgrade sind die Zugangsdaten bereits in der Datenbank - dann
-# nicht erneut danach fragen (sonst muesste bei jeder Neuinstallation ein
-# neues Passwort vergeben werden).
-# Start-Process -Wait, weil das Dashboard eine GUI-Anwendung ist - ein
-# blankes "& $dashExe" wuerde nicht zuverlaessig warten bzw. keinen
-# Exit-Code liefern. Der --has-credentials-Pfad oeffnet kein Fenster.
+# ── Set admin credentials if none exist yet ─────────────────────────────────
+# On an upgrade the credentials are already in the database - don't ask for
+# them again (otherwise every re-install would require a new password).
+# Start-Process -Wait, because the dashboard is a GUI application - a bare
+# "& $dashExe" would not wait reliably or return an exit code. The
+# --has-credentials path opens no window.
 $credProbe = Start-Process -FilePath $dashExe -ArgumentList "--has-credentials" `
     -Wait -PassThru -WindowStyle Hidden
 if ($credProbe.ExitCode -eq 0) {
-    Write-Host "Vorhandene Dashboard-Zugangsdaten bleiben unveraendert." -ForegroundColor Green
+    Write-Host "Existing dashboard credentials are kept unchanged." -ForegroundColor Green
 } else {
-    Write-Host "Jetzt Benutzername/Passwort fuer das Dashboard festlegen:" -ForegroundColor Yellow
-    Write-Host "(WICHTIG: unbedingt jetzt erledigen, bevor der PC an Teilnehmer" -ForegroundColor Yellow
-    Write-Host " uebergeben wird - sonst kann das der/die Erste tun, der/die" -ForegroundColor Yellow
-    Write-Host " das Dashboard-Icon oeffnet.)" -ForegroundColor Yellow
+    Write-Host "Now set a username/password for the dashboard:" -ForegroundColor Yellow
+    Write-Host "(IMPORTANT: do this now, before the PC is handed to participants" -ForegroundColor Yellow
+    Write-Host " - otherwise whoever opens the dashboard icon first can do it.)" -ForegroundColor Yellow
     Write-Host ""
     & $dashExe --set-credentials
 }
 
 Write-Host ""
-Write-Host "Fertig. Auf dem Desktop liegt der Ordner 'AI-Monitor' mit"
-Write-Host "Dashboard- und Deinstallations-Verknuepfung."
+Write-Host "Done. The desktop has an 'AI-Monitor' folder with the"
+Write-Host "dashboard and uninstall shortcuts."
 Write-Host ""
-Read-Host "Fenster mit Enter schliessen"
+Read-Host "Press Enter to close this window"
 
 } catch {
     Write-Host ""
-    Write-Host "FEHLER: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
     Write-Host ""
-    Read-Host "Fenster mit Enter schliessen"
+    Read-Host "Press Enter to close this window"
     exit 1
 }

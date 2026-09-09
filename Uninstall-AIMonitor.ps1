@@ -1,14 +1,14 @@
 <#
-    AI-Monitor - Deinstallation
-    ===========================
-    Stoppt und entfernt den Windows-Dienst, die Programmdateien, den
-    "Apps & Features"-Eintrag und den Desktop-Ordner. Erfordert
-    Administratorrechte (bewusst so, damit
-    Teilnehmer die Ueberwachung nicht selbst entfernen koennen).
+    AI-Monitor - Uninstall
+    ======================
+    Stops and removes the Windows service, the program files, the
+    "Apps & Features" entry and the desktop folder. Requires administrator
+    rights (deliberately, so participants cannot remove the monitoring
+    themselves).
 
-    Ausfuehren:  powershell -ExecutionPolicy Bypass -File Uninstall-AIMonitor.ps1
-    Optionen:    -KeepData   Datenbank/Screenshots unter C:\ProgramData\AIMonitor\data behalten
-                 -Force      Ohne Rueckfrage deinstallieren
+    Run:      powershell -ExecutionPolicy Bypass -File Uninstall-AIMonitor.ps1
+    Options:  -KeepData   keep the database/screenshots under C:\ProgramData\AIMonitor\data
+              -Force      uninstall without confirmation
 #>
 param(
     [switch]$KeepData,
@@ -19,11 +19,11 @@ $ErrorActionPreference = "Stop"
 
 $installRoot = "$env:ProgramData\AIMonitor"
 
-# Aus dem Installationsverzeichnis heraus gestartet (so ruft "Apps & Features"
-# den Deinstaller auf)? Dann zuerst in den Temp-Ordner kopieren und von dort
-# neu starten - sonst wuerde sich das Skript beim Loeschen von $installRoot
-# selbst unter den Fuessen wegziehen. Die Kopie holt sich anschliessend ueber
-# den Block unten selbst per UAC die noetigen Administratorrechte.
+# Started from inside the install directory (this is how "Apps & Features"
+# invokes the uninstaller)? Then copy to the temp folder first and restart
+# from there - otherwise the script would pull itself out from under its own
+# feet when it deletes $installRoot. The copy then obtains the administrator
+# rights it needs via the UAC block below.
 if ($PSCommandPath -and ($PSCommandPath -like "$installRoot\*")) {
     $tempCopy = Join-Path $env:TEMP ("Uninstall-AIMonitor_{0}.ps1" -f ([guid]::NewGuid().ToString('N')))
     Copy-Item -LiteralPath $PSCommandPath -Destination $tempCopy -Force
@@ -36,7 +36,7 @@ if ($PSCommandPath -and ($PSCommandPath -like "$installRoot\*")) {
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)
 if (-not $isAdmin) {
-    Write-Host "Starte mit Administratorrechten neu (UAC-Abfrage bestaetigen) ..." -ForegroundColor Yellow
+    Write-Host "Restarting with administrator rights (confirm the UAC prompt) ..." -ForegroundColor Yellow
     $argList = @("-NoExit", "-ExecutionPolicy", "Bypass", "-File", "`"$($MyInvocation.MyCommand.Path)`"")
     if ($KeepData) { $argList += "-KeepData" }
     if ($Force)    { $argList += "-Force" }
@@ -44,10 +44,10 @@ if (-not $isAdmin) {
         Start-Process powershell -Verb RunAs -ArgumentList $argList -ErrorAction Stop
     } catch {
         Write-Host ""
-        Write-Host "Administratorrechte wurden nicht erteilt (UAC abgebrochen?)." -ForegroundColor Red
-        Write-Host "Fehler: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Administrator rights were not granted (UAC cancelled?)." -ForegroundColor Red
+        Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
         Write-Host ""
-        Read-Host "Fenster mit Enter schliessen"
+        Read-Host "Press Enter to close this window"
     }
     exit
 }
@@ -58,99 +58,99 @@ $binDir      = Join-Path $installRoot "bin"
 $dataDir     = Join-Path $installRoot "data"
 
 if (-not $Force) {
-    $answer = Read-Host "AI-Monitor wirklich deinstallieren? (ja/nein)"
-    if ($answer -notin @("ja", "j", "yes", "y")) {
-        Write-Host "Abgebrochen."
+    $answer = Read-Host "Really uninstall AI-Monitor? (yes/no)"
+    if ($answer -notin @("yes", "y", "ja", "j")) {
+        Write-Host "Cancelled."
         exit
     }
 }
 
-# ── Dienst stoppen und entfernen ─────────────────────────────────────────────
+# ── Stop and remove the service ────────────────────────────────────────────
 $svc = Get-Service -Name AIMonitor -ErrorAction SilentlyContinue
 if ($svc) {
-    Write-Host "==> Stoppe Dienst ..." -ForegroundColor Cyan
+    Write-Host "==> Stopping service ..." -ForegroundColor Cyan
     if ($svc.Status -ne "Stopped") {
         Stop-Service -Name AIMonitor -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }
     & sc.exe delete AIMonitor | Out-Null
-    Write-Host "[OK] Dienst entfernt."
+    Write-Host "[OK] Service removed."
 } else {
-    Write-Host "Dienst 'AIMonitor' ist nicht installiert."
+    Write-Host "Service 'AIMonitor' is not installed."
 }
 
-# ── Sitzungs-Agent (Screenshots) stoppen und Aufgabe entfernen ──────────────
+# ── Stop the session agent (screenshots) and remove its task ───────────────
 $agentTask = "AIMonitorSessionAgent"
 $existingTask = Get-ScheduledTask -TaskName $agentTask -ErrorAction SilentlyContinue
 if ($existingTask) {
-    Write-Host "==> Entferne Sitzungs-Agent-Aufgabe ..." -ForegroundColor Cyan
+    Write-Host "==> Removing session agent task ..." -ForegroundColor Cyan
     Get-Process -Name AISessionAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $agentTask -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "[OK] Sitzungs-Agent entfernt."
+    Write-Host "[OK] Session agent removed."
 }
 
-# ── Desktop-Ordner / -Verknuepfung entfernen ─────────────────────────────────
+# ── Remove the desktop folder / shortcut ───────────────────────────────────
 $desktop = [Environment]::GetFolderPath("CommonDesktopDirectory")
 $deskFolder = Join-Path $desktop "AI-Monitor"
 if (Test-Path $deskFolder) {
     Remove-Item $deskFolder -Recurse -Force
-    Write-Host "[OK] Desktop-Ordner entfernt."
+    Write-Host "[OK] Desktop folder removed."
 }
-# Lose Verknuepfung aus aelteren Versionen (vor dem Desktop-Ordner)
+# Loose shortcut from older versions (before the desktop folder)
 $legacyLnk = Join-Path $desktop "AI-Monitor Dashboard.lnk"
 if (Test-Path $legacyLnk) { Remove-Item $legacyLnk -Force }
 
-# ── Legacy-Autostart-Eintrag (alte .bat-Versionen) entfernen ────────────────
-# try/catch statt Stream-Umleitung, siehe Install-AIMonitor.ps1 fuer den Grund.
+# ── Remove the legacy autostart entry (old .bat versions) ──────────────────
+# try/catch instead of stream redirection, see Install-AIMonitor.ps1 for why.
 try { reg delete "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v "AIMonitor" /f *>$null } catch {}
 
-# ── "Apps & Features"-Eintrag entfernen ─────────────────────────────────────
+# ── Remove the "Apps & Features" entry ─────────────────────────────────────
 $arpKey = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\AIMonitor"
 if (Test-Path $arpKey) {
     Remove-Item $arpKey -Recurse -Force
-    Write-Host "[OK] Eintrag aus 'Apps & Features' entfernt."
+    Write-Host "[OK] Entry removed from 'Apps & Features'."
 }
 
-# ── Programmdateien / Daten entfernen ────────────────────────────────────────
+# ── Remove program files / data ───────────────────────────────────────────
 if (Test-Path $installRoot) {
-    # Datenbank/Screenshots gehoeren dem LocalSystem-Konto (vom Dienst
-    # angelegt) - ein Administrator hat dafuer zwar per Vererbung Vollzugriff,
-    # aber icacls /reset scheitert darauf trotzdem mit Zugriff verweigert,
-    # solange der Besitz nicht erst auf die Administratoren-Gruppe uebergeht.
-    # /A statt /D+Benutzername, damit das unabhaengig von der Sprache der
-    # Windows-Installation funktioniert (kein interaktives J/Y-Prompt).
+    # The database/screenshots are owned by the LocalSystem account (created
+    # by the service) - an administrator does have full access by
+    # inheritance, but icacls /reset still fails on them with access denied
+    # unless ownership first passes to the Administrators group. /A instead
+    # of /D+username so this works regardless of the Windows install
+    # language (no interactive Y/N prompt).
     try { takeown /F $installRoot /R /A *>$null } catch {}
-    # Setzt u.a. die explizite Deny-Regel auf dem Screenshots-Ordner zurueck
-    # (siehe Install-AIMonitor.ps1) - die greift sonst auch bei einem
-    # Administrator-Konto, das ueblicherweise ebenfalls Mitglied der
-    # Standardbenutzer-Gruppe ist, und wuerde das Loeschen unten verhindern.
+    # Also resets the explicit Deny rule on the screenshots folder (see
+    # Install-AIMonitor.ps1) - it otherwise applies even to an administrator
+    # account, which is usually also a member of the standard Users group,
+    # and would prevent the deletion below.
     try { icacls $installRoot /reset /T /C *>$null } catch {}
 
     if ($KeepData) {
-        Write-Host "==> Entferne Programmdateien (Daten bleiben erhalten unter $dataDir) ..." -ForegroundColor Cyan
+        Write-Host "==> Removing program files (data is kept under $dataDir) ..." -ForegroundColor Cyan
         if (Test-Path $binDir) { Remove-Item $binDir -Recurse -Force }
     } else {
-        Write-Host "==> Entferne Programmdateien und Daten ..." -ForegroundColor Cyan
+        Write-Host "==> Removing program files and data ..." -ForegroundColor Cyan
         Remove-Item $installRoot -Recurse -Force
     }
-    Write-Host "[OK] Entfernt."
+    Write-Host "[OK] Removed."
 } else {
-    Write-Host "Kein Installationsverzeichnis gefunden ($installRoot)."
+    Write-Host "No installation directory found ($installRoot)."
 }
 
 Write-Host ""
-Write-Host "Deinstallation abgeschlossen." -ForegroundColor Green
+Write-Host "Uninstall complete." -ForegroundColor Green
 if ($KeepData) {
-    Write-Host "Daten liegen weiterhin unter: $dataDir"
+    Write-Host "Data remains under: $dataDir"
 }
 Write-Host ""
-Read-Host "Fenster mit Enter schliessen"
+Read-Host "Press Enter to close this window"
 
 } catch {
     Write-Host ""
-    Write-Host "FEHLER: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "ERROR: $($_.Exception.Message)" -ForegroundColor Red
     Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
     Write-Host ""
-    Read-Host "Fenster mit Enter schliessen"
+    Read-Host "Press Enter to close this window"
     exit 1
 }

@@ -1,26 +1,24 @@
 <#
-    AI-Monitor - Paketierung
-    ========================
-    Packt das bereits gebaute dist\ (siehe build.ps1) zusammen mit
-    Install-AIMonitor.ps1 in eine einzige AIMonitor-Setup.exe, damit auf dem
-    Zielrechner nur noch ein Doppelklick noetig ist - kein Python, kein
-    manueller Build-Schritt.
+    AI-Monitor - Packaging
+    ======================
+    Packs the already-built dist\ (see build.ps1) together with
+    Install-AIMonitor.ps1 into a single AIMonitor-Setup.exe, so the target
+    machine only needs a double-click - no Python, no manual build step.
 
-    Funktionsweise: dist\ + Install-AIMonitor.ps1 + Uninstall-AIMonitor.ps1
-    werden in bundle.zip gepackt (der Installer kopiert den Deinstaller mit
-    auf den Zielrechner und traegt ihn in "Apps & Features" ein) und als
-    eingebettete Ressource in einen winzigen C#-Stub
-    kompiliert (per csc.exe, Teil jeder .NET-Framework-Installation - kein
-    Zusatzwerkzeug noetig). Die fertige EXE traegt ein "requireAdministrator"-
-    Manifest, fragt beim Doppelklick also selbst per UAC nach Adminrechten,
-    entpackt sich dann in einen Temp-Ordner und ruft dort
-    Install-AIMonitor.ps1 auf. Kein Selbst-Neustart-Race wie bei anderen
-    Self-Extractor-Ansaetzen, weil der gesamte Vorgang von Anfang an in
-    einem einzigen (bereits elevierten) Prozessbaum laeuft.
+    How it works: dist\ + Install-AIMonitor.ps1 + Uninstall-AIMonitor.ps1 are
+    packed into bundle.zip (the installer copies the uninstaller to the
+    target machine and registers it in "Apps & Features") and compiled as an
+    embedded resource into a tiny C# stub (via csc.exe, part of every .NET
+    Framework install - no extra tooling needed). The finished EXE carries a
+    "requireAdministrator" manifest, so on a double-click it asks for admin
+    rights via UAC itself, then extracts to a temp folder and runs
+    Install-AIMonitor.ps1 there. No self-restart race like other
+    self-extractor approaches, because the whole process runs from the start
+    in a single (already elevated) process tree.
 
-    Voraussetzung: build.ps1 wurde bereits ausgefuehrt (dist\ existiert).
-    Ausfuehren:    powershell -ExecutionPolicy Bypass -File package.ps1
-    Ergebnis:      AIMonitor-Setup.exe
+    Requirement: build.ps1 has already been run (dist\ exists).
+    Run:         powershell -ExecutionPolicy Bypass -File package.ps1
+    Result:      AIMonitor-Setup.exe
 #>
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -30,13 +28,13 @@ $distDir = Join-Path $root "dist"
 if (-not (Test-Path (Join-Path $distDir "AIMonitorService")) -or
     -not (Test-Path (Join-Path $distDir "AIMonitorDashboard.exe")) -or
     -not (Test-Path (Join-Path $distDir "AISessionAgent.exe"))) {
-    Write-Error "dist\ nicht gefunden oder unvollstaendig. Bitte zuerst build.ps1 ausfuehren."
+    Write-Error "dist\ not found or incomplete. Please run build.ps1 first."
     exit 1
 }
 
 $csc = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path $csc)) {
-    Write-Error "csc.exe (.NET-Framework-Compiler) nicht gefunden unter: $csc"
+    Write-Error "csc.exe (.NET Framework compiler) not found at: $csc"
     exit 1
 }
 
@@ -44,20 +42,20 @@ $stagingDir = Join-Path $root "build\installer_staging"
 if (Test-Path $stagingDir) { Remove-Item $stagingDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $stagingDir | Out-Null
 
-Write-Host "==> Packe dist\ + Install-AIMonitor.ps1 nach bundle.zip ..." -ForegroundColor Cyan
+Write-Host "==> Packing dist\ + Install-AIMonitor.ps1 into bundle.zip ..." -ForegroundColor Cyan
 $bundleContentDir = Join-Path $stagingDir "bundle_content"
 New-Item -ItemType Directory -Force -Path $bundleContentDir | Out-Null
 Copy-Item $distDir (Join-Path $bundleContentDir "dist") -Recurse -Force
 Copy-Item (Join-Path $root "Install-AIMonitor.ps1") $bundleContentDir -Force
-# Der Installer kopiert diese beiden mit nach %ProgramData%\AIMonitor\bin und
-# registriert sie als "Apps & Features"-Deinstaller - ohne sie im Bundle
-# bliebe auf dem Zielrechner kein Weg zum Deinstallieren.
+# The installer copies these two to %ProgramData%\AIMonitor\bin and registers
+# them as the "Apps & Features" uninstaller - without them in the bundle there
+# would be no way to uninstall on the target machine.
 Copy-Item (Join-Path $root "Uninstall-AIMonitor.ps1") $bundleContentDir -Force
-Copy-Item (Join-Path $root "AI-Monitor deinstallieren.bat") $bundleContentDir -Force
+Copy-Item (Join-Path $root "Uninstall AI-Monitor.bat") $bundleContentDir -Force
 
-# Versionsnummer aus config.py ziehen und beilegen, damit der Installer sie
-# fuer den "Apps & Features"-Eintrag kennt (config.py selbst wird nicht
-# mitgeliefert - nur die Zahl).
+# Pull the version number from config.py and bundle it, so the installer
+# knows it for the "Apps & Features" entry (config.py itself is not shipped -
+# only the number).
 $ver = "0.0.0"
 $m = Select-String -Path (Join-Path $root "config.py") -Pattern 'VERSION\s*=\s*["'']([^"'']+)["'']' | Select-Object -First 1
 if ($m) { $ver = $m.Matches[0].Groups[1].Value }
@@ -66,7 +64,7 @@ Write-Host "    Version: $ver"
 $zipPath = Join-Path $stagingDir "bundle.zip"
 Compress-Archive -Path (Join-Path $bundleContentDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
-Write-Host "==> Erzeuge Self-Extract-Stub ..." -ForegroundColor Cyan
+Write-Host "==> Creating self-extract stub ..." -ForegroundColor Cyan
 $programCsPath = Join-Path $stagingDir "Program.cs"
 @'
 using System;
@@ -131,7 +129,7 @@ $manifestPath = Join-Path $stagingDir "app.manifest"
 </assembly>
 '@ | Set-Content -Path $manifestPath -Encoding UTF8
 
-Write-Host "==> Kompiliere AIMonitor-Setup.exe ..." -ForegroundColor Cyan
+Write-Host "==> Compiling AIMonitor-Setup.exe ..." -ForegroundColor Cyan
 $outputExe = Join-Path $root "AIMonitor-Setup.exe"
 if (Test-Path $outputExe) { Remove-Item $outputExe -Force }
 
@@ -152,13 +150,13 @@ $cscArgs = @(
 $cscOutput = & $csc @cscArgs 2>&1
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outputExe)) {
     Write-Host $cscOutput
-    Write-Error "Kompilierung fehlgeschlagen (Exit-Code $LASTEXITCODE)."
+    Write-Error "Compilation failed (exit code $LASTEXITCODE)."
     exit 1
 }
 
 Remove-Item $stagingDir -Recurse -Force
 
 Write-Host ""
-Write-Host "==> Fertig: $outputExe" -ForegroundColor Green
-Write-Host "    Einfach auf dem Zielrechner doppelklicken - fragt selbst nach" -ForegroundColor Green
-Write-Host "    Administratorrechten (UAC) und installiert alles." -ForegroundColor Green
+Write-Host "==> Done: $outputExe" -ForegroundColor Green
+Write-Host "    Just double-click it on the target machine - it asks for" -ForegroundColor Green
+Write-Host "    administrator rights (UAC) itself and installs everything." -ForegroundColor Green
