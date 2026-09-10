@@ -108,9 +108,12 @@ if ($existing) {
     Start-Sleep -Seconds 1
 }
 
+# Always stop every running session agent first (not only when the task still
+# exists) - an upgrade must never leave an old build's agent running next to
+# the new one; two agents polling the clipboard was the v3.2.0 copy/paste bug.
+Get-Process -Name AISessionAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 $existingTask = Get-ScheduledTask -TaskName $agentTask -ErrorAction SilentlyContinue
 if ($existingTask) {
-    Get-Process -Name AISessionAgent -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $agentTask -Confirm:$false -ErrorAction SilentlyContinue
 }
 

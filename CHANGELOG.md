@@ -2,6 +2,29 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.3.0 — 2026-09-10
+
+### Fixed
+- **v3.2.0 broke copy/paste on the machine.** The clipboard reader declared
+  no ctypes `restype`/`argtypes`, so on 64-bit Windows the clipboard handle
+  was truncated to 32 bits; `GlobalLock` then dereferenced garbage,
+  `wstring_at` raised, and because `CloseClipboard()` sat *after* that line
+  inside the same `try`, it was skipped — leaving the clipboard locked for
+  every other application until the agent was killed. Now:
+  - handle/pointer types are declared correctly;
+  - `CloseClipboard()` is guaranteed via `finally`;
+  - the clipboard is only opened when `GetClipboardSequenceNumber()` shows
+    the contents actually changed — no more opening it on every poll;
+  - a named mutex enforces **one** session agent per session (two agents
+    polling the clipboard multiplied the contention);
+  - the installer now stops every running agent on upgrade, not only when
+    the scheduled task still exists.
+
+If you have v3.2.0 installed: run the v3.3.0 `AIMonitor-Setup.exe` over it.
+To recover copy/paste before then, disable the logon task from an elevated
+prompt: `schtasks /Change /TN "AIMonitorSessionAgent" /DISABLE` and end
+`AISessionAgent.exe`.
+
 ## v3.2.0 — 2026-09-10
 
 ### Added

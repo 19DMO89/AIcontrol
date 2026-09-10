@@ -21,6 +21,7 @@ it again at the next logon anyway.
 """
 
 import ctypes
+import ctypes.wintypes
 import hashlib
 import time
 from datetime import datetime
@@ -37,6 +38,29 @@ POLL_INTERVAL = 1.5
 MAX_REQUEST_AGE_SECONDS = 120
 
 CF_UNICODETEXT = 13
+
+# ── Win32 clipboard bindings ────────────────────────────────────────────────
+# restype/argtypes MUST be declared: HANDLE/pointer return values default to
+# a 32-bit C int in ctypes, which truncates the pointer on 64-bit Windows -
+# GlobalLock then dereferences garbage and wstring_at raises, and if that
+# happens between OpenClipboard and CloseClipboard the clipboard is left
+# locked for every other application (the v3.2.0 "can't copy anymore" bug).
+_u32 = ctypes.windll.user32
+_k32 = ctypes.windll.kernel32
+_u32.OpenClipboard.argtypes = [ctypes.wintypes.HWND]
+_u32.OpenClipboard.restype = ctypes.wintypes.BOOL
+_u32.CloseClipboard.restype = ctypes.wintypes.BOOL
+_u32.IsClipboardFormatAvailable.argtypes = [ctypes.wintypes.UINT]
+_u32.IsClipboardFormatAvailable.restype = ctypes.wintypes.BOOL
+_u32.GetClipboardData.argtypes = [ctypes.wintypes.UINT]
+_u32.GetClipboardData.restype = ctypes.wintypes.HANDLE
+_u32.GetClipboardSequenceNumber.restype = ctypes.wintypes.DWORD
+_u32.GetClipboardSequenceNumber.argtypes = []
+_k32.GlobalLock.argtypes = [ctypes.wintypes.HANDLE]
+_k32.GlobalLock.restype = ctypes.c_void_p
+_k32.GlobalUnlock.argtypes = [ctypes.wintypes.HANDLE]
+_k32.CreateMutexW.restype = ctypes.wintypes.HANDLE
+_k32.GetLastError.restype = ctypes.wintypes.DWORD
 
 
 # ── Screenshots ─────────────────────────────────────────────────────────────
@@ -73,22 +97,49 @@ def _service_screenshot_requests():
 # ── Clipboard ───────────────────────────────────────────────────────────────
 
 def _read_clipboard() -> str:
+    """Read CF_UNICODETEXT. CloseClipboard is guaranteed via `finally` - the
+    v3.2.0 bug was an exception between OpenClipboard and CloseClipboard
+    leaving the clipboard locked for every other app."""
+    if not _u32.IsClipboardFormatAvailable(CF_UNICODETEXT):
+        return ""
+    # OpenClipboard returns 0 if another process holds it right now - don't
+    # block, don't retry, just skip this round.
+    if not _u32.OpenClipboard(None):
+        return ""
     text = ""
     try:
-        if ctypes.windll.user32.OpenClipboard(0):
-            handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
-            if handle:
-                ptr = ctypes.windll.kernel32.GlobalLock(handle)
-                if ptr:
+        handle = _u32.GetClipboardData(CF_UNICODETEXT)
+        if handle:
+            ptr = _k32.GlobalLock(handle)
+            if ptr:
+                try:
                     text = ctypes.wstring_at(ptr)
-                    ctypes.windll.kernel32.GlobalUnlock(handle)
-            ctypes.windll.user32.CloseClipboard()
+                finally:
+                    _k32.GlobalUnlock(handle)
     except Exception:
-        pass
+        text = ""
+    finally:
+        _u32.CloseClipboard()
     return text or ""
 
 
 _last_clipboard = ""
+_last_clip_seq = None
+
+
+def _clipboard_changed() -> bool:
+    """True only when the clipboard's contents actually changed since the last
+    check - avoids opening the clipboard at all on every poll, which is what
+    caused contention with other apps."""
+    global _last_clip_seq
+    try:
+        seq = _u32.GetClipboardSequenceNumber()
+    except Exception:
+        return True
+    if seq == _last_clip_seq:
+        return False
+    _last_clip_seq = seq
+    return True
 
 
 def _lang() -> str:
@@ -97,6 +148,8 @@ def _lang() -> str:
 
 def _check_clipboard():
     global _last_clipboard
+    if not _clipboard_changed():
+        return
     text = _read_clipboard()
     if not text or len(text) < config.CLIPBOARD_MIN_CHARS:
         return
@@ -125,7 +178,26 @@ def _check_clipboard():
 
 # ── Main loop ───────────────────────────────────────────────────────────────
 
+_singleton_handle = None
+
+
+def _acquire_singleton() -> bool:
+    """False if another AISessionAgent is already running in this session.
+    Two agents both polling the clipboard multiply the contention that broke
+    copy/paste - only one may run."""
+    global _singleton_handle
+    try:
+        ERROR_ALREADY_EXISTS = 183
+        _k32.SetLastError(0)
+        _singleton_handle = _k32.CreateMutexW(None, False, "Local\\AIMonitorSessionAgent")
+        return _k32.GetLastError() != ERROR_ALREADY_EXISTS
+    except Exception:
+        return True
+
+
 def main():
+    if not _acquire_singleton():
+        return
     db.init_db()
     last_clip_check = 0.0
     while True:
