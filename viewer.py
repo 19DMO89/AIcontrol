@@ -43,6 +43,7 @@ TYPE_ICONS = {
     "network":   "🌐",
     "browser":   "🔎",
     "process":   "⚙",
+    "local_ai":  "🖥",
     "clipboard": "📋",
 }
 
@@ -277,7 +278,7 @@ class ViewerWindow:
             side="left", padx=(4, 10))
 
         self._filter_btns: dict[str, tk.Button] = {}
-        filters = ["all", "network", "browser", "process", "clipboard"]
+        filters = ["all", "network", "browser", "process", "local_ai", "clipboard"]
         for f in filters:
             btn = tk.Button(fbar, text=t(f"type.{f}", lang), font=FONT,
                             bg=BG2, fg=TEXT, relief="flat",

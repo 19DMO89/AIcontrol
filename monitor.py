@@ -9,6 +9,7 @@ import sys
 import socket
 import sqlite3
 import shutil
+import hashlib
 import threading
 import time
 import ctypes
@@ -445,78 +446,204 @@ def monitor_browser():
         time.sleep(config.BROWSER_CHECK_INTERVAL)
 
 
-# ── Clipboard monitor ─────────────────────────────────────────────────────────
-# KNOWN LIMITATION: running as the real LocalSystem service, this executes in
-# Session 0, which has no desktop/window station at all - Windows' clipboard
-# is a per-desktop resource, so OpenClipboard() here can never see what the
-# competitor (in their own interactive session) actually copies. It fails
-# quietly (caught below, returns "") rather than erroring, so nothing breaks,
-# but this monitor is effectively inert whenever running as the installed
-# service. Same constraint applies to monitor_flutter_windows() below -
-# EnumWindows() from Session 0 cannot enumerate another session's windows.
-# A real fix needs a small companion process running IN the competitor's own
-# logon session (e.g. a scheduled task triggered "at log on") that reports
-# findings back to this service - out of scope for the current pass.
-
-_last_clipboard = ""
-_clipboard_lock = threading.Lock()
-
-CF_UNICODETEXT = 13
+# ── Clipboard monitor -> moved out of this process ───────────────────────────
+# The clipboard is a per-desktop resource. This service runs as LocalSystem in
+# Session 0, which has no window station, so OpenClipboard() here never sees
+# what the competitor copies in their own session. The clipboard check now
+# runs in AISessionAgent.exe (session_agent.py), which lives in the user's
+# logon session; the "looks like AI text" scoring is in aitext.py.
 
 
-def _read_clipboard() -> str:
-    text = ""
+# ── Local-model monitor ──────────────────────────────────────────────────────
+# Process-name matching (monitor_processes) is defeated by renaming the binary
+# or launching the model from "python server.py". These signals do not depend
+# on the executable name:
+#   1. a known local-inference server port in the LISTEN state
+#   2. an AI-model marker on a process command line (.gguf, "vllm serve", …)
+#   3. downloaded model weights (*.gguf / *.safetensors, or an Ollama blob
+#      store) present on disk
+
+_OWN_MARKER = "aimonitor"
+
+
+def _proc_cmdline_lower(proc) -> str:
     try:
-        if ctypes.windll.user32.OpenClipboard(0):
-            handle = ctypes.windll.user32.GetClipboardData(CF_UNICODETEXT)
-            if handle:
-                ptr = ctypes.windll.kernel32.GlobalLock(handle)
-                if ptr:
-                    text = ctypes.wstring_at(ptr)
-                    ctypes.windll.kernel32.GlobalUnlock(handle)
-            ctypes.windll.user32.CloseClipboard()
+        parts = proc.cmdline() or []
+        return " ".join(parts).lower()
     except Exception:
-        pass
-    return text or ""
+        return ""
 
 
-def monitor_clipboard():
-    global _last_clipboard
-    log("Clipboard monitor started")
-    while True:
+def _owner_of_conn(pid):
+    """(name, exe, cmdline_lower) for a connection's owning PID - best effort."""
+    if not pid:
+        return "?", "", ""
+    try:
+        p = psutil.Process(pid)
+        return p.name(), (p.exe() or ""), _proc_cmdline_lower(p)
+    except Exception:
+        return "?", "", ""
+
+
+def _scan_local_ai_ports():
+    try:
+        conns = psutil.net_connections(kind="inet")
+    except Exception:
+        return
+    for c in conns:
         try:
-            text = _read_clipboard()
-            if text and len(text) > 80:
-                with _clipboard_lock:
-                    if text == _last_clipboard:
-                        time.sleep(config.CLIPBOARD_CHECK_INTERVAL)
-                        continue
-                    _last_clipboard = text
+            if c.status != psutil.CONN_LISTEN or not c.laddr:
+                continue
+            port = c.laddr.port
+            strong = config.LOCAL_AI_PORTS_STRONG.get(port)
+            weak = config.LOCAL_AI_PORTS_WEAK.get(port)
+            if not strong and not weak:
+                continue
 
-                text_lower = text.lower()
-                matched_pattern = None
-                for pattern in config.AI_CLIPBOARD_PATTERNS:
-                    if pattern.lower() in text_lower:
-                        matched_pattern = pattern
-                        break
+            name, exe, cmd = _owner_of_conn(c.pid)
+            if _OWN_MARKER in exe.lower():
+                continue
 
-                if matched_pattern:
-                    import hashlib
-                    text_hash = hashlib.md5(text[:200].encode("utf-8", "replace")).hexdigest()[:12]
-                    key = _bkey(f"clip_{text_hash}")
-                    if not _already_logged(key):
-                        excerpt = text[:400].replace("\n", " ")
-                        eid = log_event(
-                            "clipboard", "warning", "event.clipboard",
-                            event_key=key, screenshot=False,
-                            pattern=matched_pattern, excerpt=excerpt,
-                        )
-                        if eid:
-                            _mark_logged(key)
-                            log(f"[CLIPBOARD] Suspicious text detected (pattern: {matched_pattern})")
+            if weak and not strong:
+                hay = f"{name}\n{exe}\n{cmd}".lower()
+                looks_ai = (
+                    _match_ai_process(name, exe)
+                    or any(m in hay for m in config.LOCAL_AI_CMDLINE_MARKERS)
+                )
+                if not looks_ai:
+                    continue
+
+            label = strong or weak
+            key = _bkey(f"localport_{port}_{name}")
+            if _already_logged(key):
+                continue
+            eid = log_event(
+                "local_ai", "critical", "event.local_port", event_key=key,
+                port=port, label=label, proc=name, path=exe or "unknown",
+            )
+            if eid:
+                _mark_logged(key)
+                log(f"[LOCAL-AI] listening port {port} ({label}) via {name}")
         except Exception:
             pass
-        time.sleep(config.CLIPBOARD_CHECK_INTERVAL)
+
+
+def _scan_local_ai_cmdlines():
+    for proc in psutil.process_iter(["pid", "name", "exe"]):
+        try:
+            cmd = _proc_cmdline_lower(proc)
+            if not cmd:
+                continue
+            exe = (proc.info.get("exe") or "")
+            if _OWN_MARKER in exe.lower():
+                continue
+            marker = next(
+                (m for m in config.LOCAL_AI_CMDLINE_MARKERS if m in cmd), None
+            )
+            if not marker:
+                continue
+            name = proc.info.get("name") or "?"
+            key = _bkey(f"localcmd_{name}_{marker}")
+            if _already_logged(key):
+                continue
+            eid = log_event(
+                "local_ai", "critical", "event.local_cmdline", event_key=key,
+                proc=name, marker=marker, path=exe or "unknown",
+                pid=proc.info.get("pid"),
+            )
+            if eid:
+                _mark_logged(key)
+                log(f"[LOCAL-AI] model marker '{marker}' in cmdline of {name}")
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+        except Exception:
+            pass
+
+
+def _iter_weight_files(base: Path, max_depth: int, cap: int):
+    """Yield files under `base` down to `max_depth`, at most `cap` entries."""
+    base = str(base)
+    seen = 0
+    base_depth = base.rstrip("\\/").count(os.sep)
+    for root, dirs, files in os.walk(base):
+        if root.count(os.sep) - base_depth >= max_depth:
+            dirs[:] = []
+        for fn in files:
+            seen += 1
+            if seen > cap:
+                return
+            yield Path(root) / fn
+
+
+def _scan_local_ai_model_files():
+    for local, appdata in _real_user_appdata_dirs():
+        try:
+            user_home = local.parent.parent            # ...\<user>\AppData\Local -> <user>
+        except Exception:
+            continue
+
+        # Ollama keeps pulled models as blobs with a manifest tree.
+        ollama_manifests = user_home / ".ollama" / "models" / "manifests"
+        try:
+            if ollama_manifests.exists() and any(ollama_manifests.rglob("*")):
+                _report_model_file("Ollama model store", str(ollama_manifests.parent))
+        except Exception:
+            pass
+
+        tool_dirs = [
+            user_home / ".cache" / "huggingface" / "hub",
+            user_home / ".cache" / "lm-studio" / "models",
+            user_home / ".lmstudio" / "models",
+            local / "nomic.ai" / "GPT4All",
+            appdata / "Jan" / "data" / "models",
+            appdata / "Jan" / "models",
+            user_home / ".cache" / "koboldcpp",
+        ]
+        scan_dirs = tool_dirs + [user_home / d for d in config.LOCAL_AI_MODEL_SCAN_DIRS]
+
+        for base in scan_dirs:
+            try:
+                if not base.exists():
+                    continue
+                for f in _iter_weight_files(base, max_depth=5, cap=6000):
+                    if f.suffix.lower() not in config.LOCAL_AI_MODEL_EXTS:
+                        continue
+                    try:
+                        if f.stat().st_size >= config.LOCAL_AI_MODEL_MIN_BYTES:
+                            _report_model_file(f.name, str(f))
+                            break
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+
+def _report_model_file(name: str, path: str):
+    key = _bkey(f"localfile_{hashlib.md5(path.encode('utf-8', 'replace')).hexdigest()[:10]}")
+    if _already_logged(key):
+        return
+    eid = log_event(
+        "local_ai", "warning", "event.local_model_file", event_key=key,
+        screenshot=False, name=name, path=path,
+    )
+    if eid:
+        _mark_logged(key)
+        log(f"[LOCAL-AI] model weights on disk: {path}")
+
+
+def monitor_local_ai():
+    log("Local-model monitor started")
+    cycle = 0
+    while True:
+        try:
+            _scan_local_ai_ports()
+            _scan_local_ai_cmdlines()
+            if cycle % max(1, config.LOCAL_AI_DISK_SCAN_EVERY) == 0:
+                _scan_local_ai_model_files()
+        except Exception:
+            pass
+        cycle += 1
+        time.sleep(config.LOCAL_AI_CHECK_INTERVAL)
 
 
 # ── DNS Cache monitor ─────────────────────────────────────────────────────────
@@ -674,9 +801,9 @@ def main(stop_event: threading.Event | None = None):
         threading.Thread(target=monitor_network,   daemon=True, name="net"),
         threading.Thread(target=monitor_dns_cache, daemon=True, name="dns"),
         threading.Thread(target=monitor_processes, daemon=True, name="proc"),
+        threading.Thread(target=monitor_local_ai,  daemon=True, name="localai"),
         threading.Thread(target=monitor_flutter_windows, daemon=True, name="flutter"),
         threading.Thread(target=monitor_browser,   daemon=True, name="browser"),
-        threading.Thread(target=monitor_clipboard, daemon=True, name="clip"),
     ]
     for t in threads:
         t.start()

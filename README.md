@@ -161,15 +161,29 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## What is detected?
 
-The monitored domains, process names, window-title keywords and clipboard
-patterns are in `config.py` and can be extended there (e.g. `AI_DOMAINS`,
-`AI_PROCESSES`, `AI_WINDOW_KEYWORDS`, `AI_CLIPBOARD_PATTERNS`). After a
-change you must rebuild and reinstall (steps 1 and 2 above), because the
-Python source is compiled entirely into the EXE files.
+| Signal | How |
+|---|---|
+| **AI websites** | ~320 domains (`AI_DOMAINS`) matched against browser history and the Windows DNS cache — Western, Chinese and every major model aggregator |
+| **AI desktop apps** | process / window-title match (`AI_PROCESSES`, `AI_WINDOW_KEYWORDS`) |
+| **Local models** | listening inference ports, AI-model markers on a process command line (`.gguf`, `vllm serve`, …), and downloaded weight files on disk — **catches a renamed binary or a model started from a Python script** |
+| **Clipboard** | pasted text that scores as AI-generated (`aitext.py`), checked inside the user session |
+
+The lists live in `config.py` (`AI_DOMAINS`, `AI_PROCESSES`,
+`AI_WINDOW_KEYWORDS`, `LOCAL_AI_*`); the clipboard scoring is in `aitext.py`.
+After a change you must rebuild and reinstall (steps 1 and 2 above), because
+the Python source is compiled entirely into the EXE files.
 
 `AI_PROCESSES` entries are matched against the *exact* process / file name
 (not as a substring of the full path); domains are matched on a real label
 boundary (`x.ai` matches `api.x.ai`, not `climax.airlines.com`).
+
+> **A blocklist is never complete.** New models appear weekly, a
+> bring-your-own-key chat client reaches all of them, and a browser using
+> DNS-over-HTTPS hides its lookups from the DNS-cache monitor. The only
+> control that covers *every* model is the reverse — an **allow-list at the
+> competition firewall/proxy** (only approved hosts resolve). Treat this
+> tool as the audit log that catches the careless and documents attempts,
+> not as the lock.
 
 **Repeated use:** the same app/domain/URL is logged once per time window and
 again in the next window — so repeated use stays visible instead of

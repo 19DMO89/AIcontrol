@@ -2,6 +2,45 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.2.0 — 2026-09-10
+
+### Added
+- **Local-model detection that survives a rename.** A new monitor catches
+  locally-run LLMs / diffusion models by three name-independent signals:
+  a known local-inference **server port** in the LISTEN state (Ollama 11434,
+  LM Studio 1234, llama.cpp, vLLM, ComfyUI, …); an **AI-model marker on a
+  process command line** (`.gguf`, `.safetensors`, `vllm serve`,
+  `ollama run`, `llama_cpp`, …) regardless of what the executable is called
+  — so `python server.py --model x.gguf` is caught; and **downloaded weight
+  files on disk** (`*.gguf` / `*.safetensors` ≥ 200 MB, or a populated
+  Ollama blob store). New event type **"Local model"** in the dashboard.
+- **~320 AI domains** (was ~130). All major **Chinese** services and their
+  API endpoints (Qwen/Tongyi, GLM/Zhipu, Kimi, Doubao, Ernie, Hunyuan,
+  iFlytek, Baichuan, Yi, MiniMax, StepFun, SenseChat, Manus, …), every big
+  **model aggregator / GPU host** (OpenRouter, Together, Groq, Fireworks,
+  DeepInfra, Replicate, Cerebras, RunPod, …), and far wider coverage of
+  Western labs, AI search, coding assistants and image/video/audio tools.
+- More local runtimes and multi-model desktop clients in `AI_PROCESSES`
+  (llama.cpp server, vLLM, SGLang, LMDeploy, Xinference, Chatbox, Cherry
+  Studio, AnythingLLM, LibreChat, Jan, …).
+
+### Changed
+- **Clipboard detection rewritten and moved into the user session.** It ran
+  in the Session 0 service before, where the interactive clipboard is
+  invisible — it never actually fired. It now runs in `AISessionAgent.exe`.
+  The flat substring list is replaced by a scoring heuristic (`aitext.py`):
+  ordinary copy-paste (code, paths, quoted paragraphs) scores ~0; only text
+  with several LLM stylistic tells (disclaimers, "Certainly! …" openings,
+  offer-to-help sign-offs, heavy Markdown structure, filler phrases) is
+  logged, as a **warning**. Tunable via `CLIPBOARD_AI_SCORE` in `config.py`.
+
+### Notes
+- No database schema change — upgrading over an existing installation is
+  safe; DB, screenshots and password are kept.
+- A blocklist of AI services can never be complete. The only control that
+  covers every model is an **allow-list at the competition firewall**; this
+  tool is the audit log, not the lock. See the README.
+
 ## v3.1.0 — 2026-09-09
 
 ### Added
