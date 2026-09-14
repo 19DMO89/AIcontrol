@@ -70,8 +70,11 @@ def _take_screenshot() -> str | None:
         from PIL import ImageGrab
         d = Path(config.SCREENSHOT_DIR)
         d.mkdir(parents=True, exist_ok=True)
-        fname = d / f"shot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
-        ImageGrab.grab(all_screens=True).save(str(fname))
+        fname = d / f"shot_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.jpg"
+        img = ImageGrab.grab(all_screens=True)
+        if img.mode != "RGB":            # JPEG has no alpha channel
+            img = img.convert("RGB")
+        img.save(str(fname), "JPEG", quality=config.SCREENSHOT_JPEG_QUALITY)
         return str(fname)
     except Exception:
         return None

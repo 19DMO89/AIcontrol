@@ -22,6 +22,7 @@ import psutil
 import config
 import database as db
 import i18n
+import tamper
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -788,6 +789,24 @@ def monitor_flutter_windows():
         time.sleep(config.PROCESS_CHECK_INTERVAL)
 
 
+# ── Tamper canary ─────────────────────────────────────────────────────────────
+# Mirrors "how many events exist so far" to the registry and the Windows
+# event log at a fixed interval - independent of the database, so deleting
+# the data folder doesn't erase every trace that monitoring ran. See
+# tamper.py for why these two locations specifically.
+
+def monitor_tamper_canary():
+    log("Tamper canary started")
+    while True:
+        try:
+            total = db.get_stats()[0] or 0
+            last = db.get_last_event_timestamp()
+            tamper.heartbeat(total, last)
+        except Exception:
+            pass
+        time.sleep(config.CANARY_INTERVAL)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(stop_event: threading.Event | None = None):
@@ -797,6 +816,11 @@ def main(stop_event: threading.Event | None = None):
     log(f"AI-Monitor started (session {session_id})")
     log(f"Database: {Path(config.DB_PATH).resolve()}")
 
+    try:
+        tamper.record_install_if_new(db.get_stats()[0] or 0)
+    except Exception:
+        pass
+
     threads = [
         threading.Thread(target=monitor_network,   daemon=True, name="net"),
         threading.Thread(target=monitor_dns_cache, daemon=True, name="dns"),
@@ -804,6 +828,7 @@ def main(stop_event: threading.Event | None = None):
         threading.Thread(target=monitor_local_ai,  daemon=True, name="localai"),
         threading.Thread(target=monitor_flutter_windows, daemon=True, name="flutter"),
         threading.Thread(target=monitor_browser,   daemon=True, name="browser"),
+        threading.Thread(target=monitor_tamper_canary, daemon=True, name="canary"),
     ]
     for t in threads:
         t.start()

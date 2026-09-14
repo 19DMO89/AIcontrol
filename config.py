@@ -5,7 +5,7 @@ from pathlib import Path
 # Single source of truth for the version. Shown in the dashboard/login UI and
 # read (via regex or the bundled VERSION.txt) by Install-AIMonitor.ps1 for the
 # "Apps & Features" entry. Bump this on every release.
-VERSION = "3.3.0"
+VERSION = "3.4.0"
 
 # Default UI / event language ("en" or "de"). The active language is stored
 # per installation in the database (settings table) and can be switched in
@@ -609,6 +609,16 @@ CLIPBOARD_CHECK_INTERVAL = 4     # seconds
 
 # Screenshots on detection
 SCREENSHOT_ON_DETECTION = True
+
+# Screenshots are saved as JPEG (not PNG) to keep the per-day footprint
+# manageable on a full-screen, multi-monitor grab. 70 keeps AI chat text/UI
+# readable while cutting file size by roughly 80-90% versus PNG.
+SCREENSHOT_JPEG_QUALITY = 70
+
+# How often the tamper canary (see tamper.py) refreshes the registry/event-
+# log trace of "how many events exist so far" - independent of the database,
+# so deleting the data folder doesn't erase every sign that monitoring ran.
+CANARY_INTERVAL = 600            # seconds (10 minutes)
 
 # Database file (shared between monitor and viewer)
 DB_PATH = str(_DATA_DIR / "ai_monitor.db")

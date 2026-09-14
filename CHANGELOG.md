@@ -2,6 +2,32 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.4.0 — 2026-09-14
+
+### Added
+- **Tamper canary.** Deleting the whole `data` folder (possible for a local
+  administrator, see the NTFS note below) used to leave the app looking like
+  a fresh install, with no trace that monitoring had ever run. The service
+  now mirrors a minimal "N events logged so far, last at HH:MM" trace to the
+  registry (`HKLM\SOFTWARE\AIMonitor`) and the Windows Application event log
+  (source `AIMonitor`) every 10 minutes, independent of the database. If the
+  dashboard is opened afterwards and finds an empty database *but* the
+  canary still shows prior activity, it shows a warning instead of quietly
+  offering first-run setup. Clearing the event log to hide this also leaves
+  its own event (ID 104) naming the account that did it. See `tamper.py`.
+- Screenshots are now saved as JPEG (quality 70) instead of uncompressed
+  PNG, cutting the per-shot size by roughly 80-90% - directly addresses the
+  "how much disk space will screenshots use over a competition day"
+  question, since detection screenshots are the main driver of that.
+
+### Note (not a code fix — a deployment requirement)
+The tamper protection this tool relies on (service can't be stopped, data
+folder can't be deleted/modified by a standard user) assumes participant
+Windows accounts are **standard users, not administrators**. On an
+administrator account, NTFS permissions and the Windows service model can
+always be bypassed — no application-level change can prevent that. Make
+sure competition machines log participants in as standard users.
+
 ## v3.3.0 — 2026-09-10
 
 ### Fixed

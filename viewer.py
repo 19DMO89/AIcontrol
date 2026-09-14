@@ -13,6 +13,7 @@ from pathlib import Path
 import config
 import database as db
 import i18n
+import tamper
 from i18n import t
 
 # ── Theme ─────────────────────────────────────────────────────────────────────
@@ -87,7 +88,15 @@ class LoginWindow:
         # height. The status line below the button also needs room, or error
         # messages land off-screen on this fixed-size, non-resizable window
         # and look like no feedback at all.
-        height = 530 if not db.has_credentials() else 410
+        first_run = not db.has_credentials()
+        # An empty database at first-run normally means a genuine fresh
+        # install. If the tamper canary (tamper.py) still shows prior
+        # activity, the data folder was more likely wiped - flag it instead
+        # of silently presenting a clean setup screen. See tamper.py.
+        self._tamper_state = tamper.check_for_wipe() if first_run else None
+        height = 530 if first_run else 410
+        if self._tamper_state:
+            height += 70
         center_window(self.root, 440, height)
         self._build()
 
@@ -113,7 +122,13 @@ class LoginWindow:
         card.pack(padx=40, pady=20, fill="x")
 
         first_run = not db.has_credentials()
-        if first_run:
+        if self._tamper_state:
+            last = self._tamper_state.get("LastEventTime") or "?"
+            count = self._tamper_state.get("EventCount", "?")
+            tk.Label(card, text=t("login.tamper_warning", lang, count=count, last=last),
+                     font=FONT, bg=BG1, fg=CRIT, wraplength=340, justify="center").grid(
+                         row=0, column=0, columnspan=2, pady=(12, 4), padx=20)
+        elif first_run:
             tk.Label(card, text=t("login.first_run", lang),
                      font=FONT, bg=BG1, fg=WARN).grid(
                          row=0, column=0, columnspan=2, pady=(12, 4), padx=20)

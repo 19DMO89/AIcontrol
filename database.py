@@ -139,6 +139,14 @@ def get_stats():
         """).fetchone()
 
 
+def get_last_event_timestamp() -> str | None:
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT timestamp FROM events ORDER BY timestamp DESC LIMIT 1"
+        ).fetchone()
+    return row[0] if row else None
+
+
 def acknowledge_event(event_id):
     with _connect() as conn:
         conn.execute("UPDATE events SET acknowledged=1 WHERE id=?", (event_id,))
