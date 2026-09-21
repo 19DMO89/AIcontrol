@@ -40,6 +40,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cli.err_user_short":   "Error: username too short (min. 2 characters).",
         "cli.err_pw_short":     "Error: password too short (min. 6 characters).",
         "cli.err_pw_match":     "Error: passwords do not match.",
+        "cli.retry":            "Let's try that again.",
         "cli.ok":               "[OK] Credentials for '{username}' set.",
         # ── Dashboard chrome ───────────────────────────────────────────
         "app.window_title":     "AI-Monitor · Activity log",
@@ -158,6 +159,7 @@ _STRINGS: dict[str, dict[str, str]] = {
         "cli.err_user_short":   "Fehler: Benutzername zu kurz (min. 2 Zeichen).",
         "cli.err_pw_short":     "Fehler: Passwort zu kurz (min. 6 Zeichen).",
         "cli.err_pw_match":     "Fehler: Passwörter stimmen nicht überein.",
+        "cli.retry":            "Versuchen wir's nochmal.",
         "cli.ok":               "[OK] Zugangsdaten für '{username}' gesetzt.",
         # ── Dashboard chrome ───────────────────────────────────────────
         "app.window_title":     "AI-Monitor · Aktivitätsprotokoll",

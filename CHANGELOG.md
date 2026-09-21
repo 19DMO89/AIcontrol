@@ -2,6 +2,20 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.4.1 — 2026-09-21
+
+### Fixed
+- **Password shown in plaintext during `--set-credentials` (installer setup).**
+  The installer runs the dashboard's CLI credential setup attached to its own
+  console (`_attach_console()` reopens `stdin`/`stdout` on `CONIN$`/`CONOUT$`).
+  That reassignment makes `getpass.getpass()`'s Windows path treat `stdin` as
+  "not the real console" and silently fall back to plain, visible `input()` -
+  so the password typed during first-time setup was echoed in the clear.
+  Replaced with a small masked-input reader (`msvcrt.getwch()`, echoing `*`
+  per keystroke) that doesn't depend on `getpass`'s console-identity check.
+- Mismatched password confirmation during `--set-credentials` now re-prompts
+  instead of aborting the whole setup step; too-short passwords do the same.
+
 ## v3.4.0 — 2026-09-14
 
 ### Added

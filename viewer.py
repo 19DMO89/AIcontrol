@@ -705,10 +705,43 @@ def _attach_console():
     sys.stdin = open("CONIN$", "r")
 
 
+def _masked_input(prompt: str) -> str:
+    """Read a line from the console echoing '*' per keystroke instead of the
+    typed character. getpass.getpass() looks like the obvious choice here,
+    but its Windows path (win_getpass) refuses to run whenever
+    `sys.stdin is not sys.__stdin__` - which is always true after
+    _attach_console() reopens stdin on CONIN$ - and silently falls back to
+    plain, visible input(). Reading raw keystrokes via msvcrt sidesteps that
+    check entirely."""
+    import msvcrt
+    sys.stdout.write(prompt)
+    sys.stdout.flush()
+    chars: list[str] = []
+    while True:
+        ch = msvcrt.getwch()
+        if ch in ("\r", "\n"):
+            sys.stdout.write("\r\n")
+            sys.stdout.flush()
+            return "".join(chars)
+        if ch == "\003":  # Ctrl+C
+            raise KeyboardInterrupt
+        if ch in ("\b", "\x7f"):
+            if chars:
+                chars.pop()
+                sys.stdout.write("\b \b")
+                sys.stdout.flush()
+            continue
+        if ch in ("\x00", "\xe0"):  # arrow/function key prefix - drop the next code too
+            msvcrt.getwch()
+            continue
+        chars.append(ch)
+        sys.stdout.write("*")
+        sys.stdout.flush()
+
+
 def _set_credentials_cli():
     """Seed the admin login during installation, so the dashboard never has
     an unclaimed first-run state that whoever opens it first could grab."""
-    import getpass
     _attach_console()
     db.init_db()
     lang = i18n.normalize(db.get_setting("language", config.DEFAULT_LANGUAGE))
@@ -716,14 +749,19 @@ def _set_credentials_cli():
     if len(username) < 2:
         print(t("cli.err_user_short", lang), file=sys.stderr)
         sys.exit(1)
-    password = getpass.getpass(t("cli.password", lang))
-    password2 = getpass.getpass(t("cli.confirm", lang))
-    if len(password) < 6:
-        print(t("cli.err_pw_short", lang), file=sys.stderr)
-        sys.exit(1)
-    if password != password2:
-        print(t("cli.err_pw_match", lang), file=sys.stderr)
-        sys.exit(1)
+
+    while True:
+        password = _masked_input(t("cli.password", lang))
+        if len(password) < 6:
+            print(t("cli.err_pw_short", lang), file=sys.stderr)
+            continue
+        password2 = _masked_input(t("cli.confirm", lang))
+        if password != password2:
+            print(t("cli.err_pw_match", lang), file=sys.stderr)
+            print(t("cli.retry", lang))
+            continue
+        break
+
     db.set_credentials(username, password)
     print(t("cli.ok", lang, username=username))
     sys.exit(0)
