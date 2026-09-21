@@ -71,6 +71,45 @@ if (-not $isAdmin) {
 
 try {
 
+# ── Windows Smart App Control ────────────────────────────────────────────────
+# A consumer-facing Windows Defender Application Control policy, on by
+# default on many clean Windows 11 installs (Settings -> Privacy & security
+# -> Windows Security -> App & browser control -> Smart App Control). It
+# silently blocks unsigned/unrecognized binaries - including the pywin32
+# DLL the Windows service needs (servicemanager/pywintypes) - and surfaces
+# here as "ImportError: DLL load failed while importing servicemanager: An
+# Application Control policy has blocked this file" deep inside the service
+# registration step, followed by a confusing "service not found" a few lines
+# later. Since these machines belong to the participants (not a managed
+# fleet we can push a policy exception to), check for it up front and give a
+# clear, actionable message instead of that cryptic failure chain.
+$sacState = $null
+try {
+    $sacState = (Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" `
+                 -Name "VerifiedAndReputablePolicyState" -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+} catch {}
+if ($sacState -eq 1 -or $sacState -eq 2) {
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host " Windows Smart App Control is ON on this machine." -ForegroundColor Red
+    Write-Host "============================================================" -ForegroundColor Red
+    Write-Host "It will block this tool's Windows service from starting (an" -ForegroundColor Yellow
+    Write-Host "unsigned-binary block), which fails the installation partway" -ForegroundColor Yellow
+    Write-Host "through with a confusing error." -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Turn it off first, then re-run this installer:" -ForegroundColor Yellow
+    Write-Host "  Windows Security -> App & browser control -> Smart App Control -> Off" -ForegroundColor Yellow
+    Write-Host "(Note: this is a one-way switch on this Windows install - it cannot be" -ForegroundColor DarkYellow
+    Write-Host " turned back on without reinstalling Windows.)" -ForegroundColor DarkYellow
+    Write-Host ""
+    $sacAnswer = Read-Host "Continue installing anyway? Not recommended - it will likely fail. [y/N]"
+    if ($sacAnswer -notin @("y", "yes")) {
+        Write-Host "Installation cancelled." -ForegroundColor Yellow
+        Read-Host "Press Enter to close this window"
+        exit 1
+    }
+}
+
 $root       = Split-Path -Parent $MyInvocation.MyCommand.Path
 $svcSrc     = Join-Path $root "dist\AIMonitorService"
 $dashSrc    = Join-Path $root "dist\AIMonitorDashboard.exe"

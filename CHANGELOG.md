@@ -2,6 +2,24 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.4.3 — 2026-09-21
+
+### Fixed
+- **Confusing install failure on machines with Windows Smart App Control
+  on.** Reported on two WorldSkills competition laptops: registering the
+  service failed with `ImportError: DLL load failed while importing
+  servicemanager: An Application Control policy has blocked this file`,
+  followed by an unrelated-looking "service not found" error. Root cause:
+  Smart App Control (on by default on many clean Windows 11 installs)
+  blocks the unsigned pywin32 DLL the service needs. The installer now
+  checks `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy
+  \VerifiedAndReputablePolicyState` up front and tells the operator to turn
+  Smart App Control off (Windows Security → App & browser control) before
+  continuing, instead of failing deep inside service registration with no
+  clear cause. Since the affected machines belong to the participants
+  (not a fleet we can push a policy exception to), this has to be done per
+  machine.
+
 ## v3.4.2 — 2026-09-21
 
 ### Added

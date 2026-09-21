@@ -155,6 +155,19 @@ powershell -ExecutionPolicy Bypass -File Diagnose-AIMonitor.ps1
 The result lands in `diagnose_output.log`. Or double-click
 `AI-Monitor Diagnostics.bat`.
 
+If installation fails partway through service registration with
+`ImportError: DLL load failed while importing servicemanager: An
+Application Control policy has blocked this file` (or the German
+`Eine Anwendungssteuerungsrichtlinie hat diese Datei blockiert`),
+**Windows Smart App Control** is on for that machine and is blocking the
+unsigned service DLL. The installer now detects this up front and warns
+before continuing. Fix: Windows Security → App & browser control → Smart
+App Control → Off, then re-run the installer. This is a one-way switch on
+that Windows installation - it cannot be turned back on without
+reinstalling Windows. Since these are participant-owned machines (not a
+fleet with a pushed policy), this has to be done per machine before
+installing.
+
 ## Changelog
 
 See [CHANGELOG.md](CHANGELOG.md).
