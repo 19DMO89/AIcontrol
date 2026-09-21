@@ -2,6 +2,23 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.4.4 — 2026-09-21
+
+### Added
+- **`package.ps1 -DefaultUsername`/`-DefaultPassword`/`-OutputPath`** - bakes
+  a fixed dashboard login into the compiled installer, so it runs with zero
+  prompts on a double-click. For mass-deploying the same competition login
+  to many machines without typing it in 40 times. `bootstrap.ps1` (the
+  script that runs inside the self-extracting installer) is now written as
+  a plain file and embedded as its own resource instead of hand-escaped
+  inside the C# stub source, so the credentials don't need to survive two
+  layers of string-escaping.
+  This must never be run with real credentials from a tracked script or CI
+  job, and the resulting EXE must never be committed or published - it
+  contains the password in plain text. Use a local, gitignored wrapper
+  (`*.local.ps1`) instead; see `package.local.ps1` (not shipped, create
+  your own).
+
 ## v3.4.3 — 2026-09-21
 
 ### Fixed

@@ -26,5 +26,6 @@ dist/
 # Ein-Klick-Installer (siehe package.ps1)
 AIMonitor-Setup.exe
 
-# Lokale Deploy-Skripte mit echten Zugangsdaten - nie committen
+# Lokale Deploy-Skripte/Installer mit echten Zugangsdaten - nie committen
 *.local.ps1
+AIMonitor-Setup-local.exe

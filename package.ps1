@@ -19,7 +19,25 @@
     Requirement: build.ps1 has already been run (dist\ exists).
     Run:         powershell -ExecutionPolicy Bypass -File package.ps1
     Result:      AIMonitor-Setup.exe
+
+    Options:     -DefaultUsername / -DefaultPassword   bake a fixed dashboard
+                     login into the built installer, so it needs zero prompts
+                     on a double-click (for mass deployment, e.g. the same
+                     competition login on many machines). NEVER pass real
+                     credentials from a tracked script/CI job - this bakes
+                     them in plain text into the output EXE. Call this from a
+                     local, gitignored wrapper (*.local.ps1) only, and the
+                     result must not be committed or published as a public
+                     release asset - use -OutputPath to keep it out of the
+                     way of the public AIMonitor-Setup.exe.
+                 -OutputPath   where to write the compiled installer
+                     (default: AIMonitor-Setup.exe next to this script).
 #>
+param(
+    [string]$DefaultUsername,
+    [string]$DefaultPassword,
+    [string]$OutputPath
+)
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -65,6 +83,25 @@ $zipPath = Join-Path $stagingDir "bundle.zip"
 Compress-Archive -Path (Join-Path $bundleContentDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
 Write-Host "==> Creating self-extract stub ..." -ForegroundColor Cyan
+
+# bootstrap.ps1 is a real file (not a hand-escaped C# string) so optional
+# -DefaultUsername/-DefaultPassword can be inserted as plain text with no
+# double-escaping between PowerShell, C# source, and the generated script.
+$installArgs = ""
+if ($DefaultUsername -and $DefaultPassword) {
+    Write-Host "    Baking in a fixed login ('$DefaultUsername') - do not publish this build." -ForegroundColor Yellow
+    $escUser = $DefaultUsername.Replace('"', '""')
+    $escPass = $DefaultPassword.Replace('"', '""')
+    $installArgs = " -Username `"$escUser`" -Password `"$escPass`""
+}
+$bootstrapPath = Join-Path $stagingDir "bootstrap.ps1"
+@"
+`$ErrorActionPreference = "Stop"
+`$here = Split-Path -Parent `$MyInvocation.MyCommand.Path
+Expand-Archive -Path (Join-Path `$here "bundle.zip") -DestinationPath `$here -Force
+& (Join-Path `$here "Install-AIMonitor.ps1")$installArgs
+"@ | Set-Content -Path $bootstrapPath -Encoding UTF8
+
 $programCsPath = Join-Path $stagingDir "Program.cs"
 @'
 using System;
@@ -88,12 +125,11 @@ class Program
             }
 
             string bootstrapPath = Path.Combine(tempDir, "bootstrap.ps1");
-            string bootstrap =
-                "$ErrorActionPreference = \"Stop\"\r\n" +
-                "$here = Split-Path -Parent $MyInvocation.MyCommand.Path\r\n" +
-                "Expand-Archive -Path (Join-Path $here \"bundle.zip\") -DestinationPath $here -Force\r\n" +
-                "& (Join-Path $here \"Install-AIMonitor.ps1\")\r\n";
-            File.WriteAllText(bootstrapPath, bootstrap);
+            using (Stream res = Assembly.GetExecutingAssembly().GetManifestResourceStream("bootstrap.ps1"))
+            using (FileStream fs = File.Create(bootstrapPath))
+            {
+                res.CopyTo(fs);
+            }
 
             ProcessStartInfo psi = new ProcessStartInfo();
             psi.FileName = "powershell.exe";
@@ -129,8 +165,8 @@ $manifestPath = Join-Path $stagingDir "app.manifest"
 </assembly>
 '@ | Set-Content -Path $manifestPath -Encoding UTF8
 
-Write-Host "==> Compiling AIMonitor-Setup.exe ..." -ForegroundColor Cyan
-$outputExe = Join-Path $root "AIMonitor-Setup.exe"
+$outputExe = if ($OutputPath) { $OutputPath } else { Join-Path $root "AIMonitor-Setup.exe" }
+Write-Host "==> Compiling $(Split-Path -Leaf $outputExe) ..." -ForegroundColor Cyan
 if (Test-Path $outputExe) { Remove-Item $outputExe -Force }
 
 $iconArg = @()
@@ -144,6 +180,7 @@ $cscArgs = @(
     "/win32manifest:`"$manifestPath`""
 ) + $iconArg + @(
     "/resource:`"$zipPath`",bundle.zip",
+    "/resource:`"$bootstrapPath`",bootstrap.ps1",
     "`"$programCsPath`""
 )
 
@@ -160,3 +197,8 @@ Write-Host ""
 Write-Host "==> Done: $outputExe" -ForegroundColor Green
 Write-Host "    Just double-click it on the target machine - it asks for" -ForegroundColor Green
 Write-Host "    administrator rights (UAC) itself and installs everything." -ForegroundColor Green
+if ($DefaultUsername -and $DefaultPassword) {
+    Write-Host ""
+    Write-Host "    This build has a login baked in in plain text - keep it off" -ForegroundColor Red
+    Write-Host "    GitHub / any public share, it is only for local deployment." -ForegroundColor Red
+}
