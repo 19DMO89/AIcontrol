@@ -741,7 +741,12 @@ def _masked_input(prompt: str) -> str:
 
 def _set_credentials_cli():
     """Seed the admin login during installation, so the dashboard never has
-    an unclaimed first-run state that whoever opens it first could grab."""
+    an unclaimed first-run state that whoever opens it first could grab.
+
+    Username/password can be supplied as argv[2]/argv[3] for unattended mass
+    deployment (e.g. installing the same competition login on 40 machines
+    from a script) - that path skips the interactive prompts entirely. With
+    no password argument, it falls back to the masked interactive prompt."""
     _attach_console()
     db.init_db()
     lang = i18n.normalize(db.get_setting("language", config.DEFAULT_LANGUAGE))
@@ -750,17 +755,23 @@ def _set_credentials_cli():
         print(t("cli.err_user_short", lang), file=sys.stderr)
         sys.exit(1)
 
-    while True:
-        password = _masked_input(t("cli.password", lang))
+    if len(sys.argv) > 3:
+        password = sys.argv[3]
         if len(password) < 6:
             print(t("cli.err_pw_short", lang), file=sys.stderr)
-            continue
-        password2 = _masked_input(t("cli.confirm", lang))
-        if password != password2:
-            print(t("cli.err_pw_match", lang), file=sys.stderr)
-            print(t("cli.retry", lang))
-            continue
-        break
+            sys.exit(1)
+    else:
+        while True:
+            password = _masked_input(t("cli.password", lang))
+            if len(password) < 6:
+                print(t("cli.err_pw_short", lang), file=sys.stderr)
+                continue
+            password2 = _masked_input(t("cli.confirm", lang))
+            if password != password2:
+                print(t("cli.err_pw_match", lang), file=sys.stderr)
+                print(t("cli.retry", lang))
+                continue
+            break
 
     db.set_credentials(username, password)
     print(t("cli.ok", lang, username=username))

@@ -32,9 +32,19 @@
                                      username/password instead of keeping
                                      the existing one (e.g. to lock out
                                      whoever set the test credentials).
+                 -Username / -Password   set the dashboard login to this
+                                     value non-interactively (no prompts) -
+                                     for scripted mass deployment (e.g. the
+                                     same competition login on 40 machines).
+                                     Never put real credentials in a file
+                                     that ends up committed to the repo;
+                                     pass them on the command line or from a
+                                     local, untracked script instead.
 #>
 param(
-    [switch]$ResetCredentials
+    [switch]$ResetCredentials,
+    [string]$Username,
+    [string]$Password
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,6 +55,8 @@ if (-not $isAdmin) {
     Write-Host "Restarting with administrator rights (confirm the UAC prompt) ..." -ForegroundColor Yellow
     $relArgs = @("-ExecutionPolicy", "Bypass", "-File", "`"$($MyInvocation.MyCommand.Path)`"")
     if ($ResetCredentials) { $relArgs += "-ResetCredentials" }
+    if ($Username) { $relArgs += @("-Username", "`"$Username`"") }
+    if ($Password) { $relArgs += @("-Password", "`"$Password`"") }
     try {
         Start-Process powershell -Verb RunAs -Wait -ArgumentList $relArgs -ErrorAction Stop
     } catch {
@@ -325,21 +337,28 @@ $credProbe = Start-Process -FilePath $dashExe -ArgumentList "--has-credentials" 
     -Wait -PassThru -WindowStyle Hidden
 $haveCreds = ($credProbe.ExitCode -eq 0)
 
-$setNew = $true
-if ($haveCreds -and -not $ResetCredentials) {
-    Write-Host "Existing dashboard credentials found." -ForegroundColor Cyan
-    $answer = Read-Host "Keep them? Press Enter to keep, or type 'n' to set a new username/password"
-    $setNew = ($answer -in @("n", "no"))
-}
-
-if ($setNew) {
-    Write-Host "Now set a username/password for the dashboard:" -ForegroundColor Yellow
-    Write-Host "(IMPORTANT: do this now, before the PC is handed to participants" -ForegroundColor Yellow
-    Write-Host " - otherwise whoever opens the dashboard icon first can do it.)" -ForegroundColor Yellow
-    Write-Host ""
-    & $dashExe --set-credentials
+if ($Username -and $Password) {
+    # Unattended mass-deployment path: no prompts, no "keep existing?"
+    # question - this run explicitly says what the login should be.
+    Write-Host "==> Setting dashboard login to '$Username' (unattended) ..." -ForegroundColor Cyan
+    & $dashExe --set-credentials $Username $Password
 } else {
-    Write-Host "Existing dashboard credentials are kept unchanged." -ForegroundColor Green
+    $setNew = $true
+    if ($haveCreds -and -not $ResetCredentials) {
+        Write-Host "Existing dashboard credentials found." -ForegroundColor Cyan
+        $answer = Read-Host "Keep them? Press Enter to keep, or type 'n' to set a new username/password"
+        $setNew = ($answer -in @("n", "no"))
+    }
+
+    if ($setNew) {
+        Write-Host "Now set a username/password for the dashboard:" -ForegroundColor Yellow
+        Write-Host "(IMPORTANT: do this now, before the PC is handed to participants" -ForegroundColor Yellow
+        Write-Host " - otherwise whoever opens the dashboard icon first can do it.)" -ForegroundColor Yellow
+        Write-Host ""
+        & $dashExe --set-credentials
+    } else {
+        Write-Host "Existing dashboard credentials are kept unchanged." -ForegroundColor Green
+    }
 }
 
 Write-Host ""

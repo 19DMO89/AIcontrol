@@ -2,6 +2,17 @@
 
 All notable changes to AI-Monitor. Newest version first.
 
+## v3.4.2 — 2026-09-21
+
+### Added
+- **Unattended credential setup for mass deployment.** `Install-AIMonitor.ps1`
+  now accepts `-Username`/`-Password` and, when both are given, sets the
+  dashboard login non-interactively (no "keep existing?" prompt, no masked
+  input) - built for installing the same competition login across many
+  machines from a script instead of typing it in by hand each time.
+  Real credentials should never be committed - pass them on the command
+  line or from a local, gitignored wrapper script (`*.local.ps1`).
+
 ## v3.4.1 — 2026-09-21
 
 ### Fixed
